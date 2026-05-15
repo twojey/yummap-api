@@ -33,6 +33,7 @@ Les mêmes variables sont consommées partout — seule `DEPLOY_MODE` diffère.
 | `GROQ_API_KEY`                 | Groq (détection resto prioritaire 1, 1000 req/jour gratuit).|
 | `FCM_PROJECT_ID`               | Projet Firebase Cloud Messaging.                           |
 | `FCM_SERVICE_ACCOUNT_KEY`      | JSON service account FCM (string brute, pas chemin).       |
+| `INSTAGRAM_COOKIES_B64`        | Cookies Instagram en base64 — voir section dédiée plus bas.|
 
 ### Uniquement côté worker (mode `worker` ou `all`)
 
@@ -113,4 +114,87 @@ Le job est créé en `pending` dans Supabase et y reste. Dès qu'un worker déma
 Oui — toutes les routes restent disponibles. Seul `POST /videos/import` (la partie qui lancerait yt-dlp sync) est court-circuitée vers enqueue-only.
 
 **Q : Comment voir les logs du déploiement Deno Deploy ?**
-[dash.deno.com](https://dash.deno.com) → projet `yummap-api` → onglet Logs (live tail).
+[app.deno.com](https://app.deno.com) → projet `yummap-api` → onglet Logs (live tail).
+
+---
+
+## 🍪 Cookies Instagram
+
+Le téléchargement de Reels/posts Instagram nécessite un cookie de session
+valide. Les cookies de session **expirent** au bout de ~30-90 jours et il faut
+les régénérer périodiquement.
+
+### Cascade de téléchargement
+
+Pour résilience, le worker essaie 3 méthodes en cascade :
+
+| Niveau | Outil           | Cookies requis ? |
+| ------ | --------------- | ---------------- |
+| 1      | `yt-dlp`        | Oui pour la plupart des Reels |
+| 2      | `gallery-dl`    | Oui (parse une API différente)|
+| 3      | Fetch HTTP direct + parse `og:video` meta | Non, mais ne marche que pour les posts publics indexés |
+
+Quand le cookie expire, les niveaux 1 et 2 retournent `auth` → le niveau 3
+prend la suite. La cascade tient quelques jours sans cookies valide, mais la
+qualité dégrade : refresh-les dès que tu reçois une alerte.
+
+### Étape 1 — Extraire les cookies depuis un browser
+
+Le format attendu est **Netscape `cookies.txt`** (le même que celui que `curl
+--cookie` consomme).
+
+Extensions à utiliser :
+- Chrome / Edge : **"Get cookies.txt LOCALLY"** (open source, à privilégier ;
+  les extensions closed-source peuvent exfiltrer).
+- Firefox : **"cookies.txt"** par lennon.
+
+Procédure :
+
+1. Sur ton navigateur, va sur https://www.instagram.com et **connecte-toi** à un compte burner (pas ton compte perso, au cas où IG flag l'activité).
+2. Reste sur instagram.com, clique sur l'extension, **Export → cookies.txt**.
+3. Sauvegarde le fichier sous `.instagram-cookies.txt` à la racine du repo (ignoré par git).
+
+### Étape 2 — Pousser sur le worker
+
+```bash
+# Encode le fichier en base64 (mac/linux)
+base64 -i .instagram-cookies.txt | tr -d '\n' | pbcopy
+```
+
+(`pbcopy` met le résultat dans le presse-papier macOS. Sur Linux remplace par `xclip -selection clipboard`.)
+
+Puis :
+
+**Fly.io** :
+```bash
+fly secrets set INSTAGRAM_COOKIES_B64='<paste>' --app yummap-worker
+# Restart automatique de l'instance après ce set.
+```
+
+**Railway / Render / autre** :
+Va dans le dashboard → Environment variables → ajoute `INSTAGRAM_COOKIES_B64` avec le contenu copié.
+
+### Étape 3 — Vérifier que ça marche
+
+```bash
+# Sur le worker, dans les logs de démarrage :
+[InstagramCookies] cookies materialised at /tmp/instagram-cookies.txt
+```
+
+Puis lance un import test :
+```bash
+curl -X POST https://yummap-api.deno.dev/videos/import \
+  -H 'Authorization: Bearer <token>' \
+  -d '{"url":"https://www.instagram.com/reel/<id>/"}'
+```
+
+Suis le statut. Si tu vois `auth` dans les logs worker, le cookie n'est plus
+valide → ré-extraire (étape 1).
+
+### Étape 4 — Rotation
+
+Pas d'automatisation aujourd'hui. À la prochaine itération, on peut :
+
+- Monitor le taux d'erreurs `auth` sur les jobs `video_import_requests`.
+- Si > 10% sur les 24h, envoyer un push notif à l'admin.
+- Re-extraire le cookie depuis le browser, recopier dans le secret manager.

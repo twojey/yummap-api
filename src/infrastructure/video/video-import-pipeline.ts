@@ -1,4 +1,3 @@
-import { config } from "../../../config.ts";
 import type { IVideoImportPipeline, ImportResult, ITranscriptionService, IRestaurantDetector } from "../../domain/video/video.pipeline.ts";
 import { ALLOWED_TAG_SLUGS } from "../../domain/video/video.pipeline.ts";
 import type { IRestaurantRepository } from "../../domain/restaurant/restaurant.repository.ts";
@@ -13,12 +12,14 @@ import { GooglePlacesClient } from "../google-places/google-places.client.ts";
 import { SupabaseStorageAdapter } from "../storage/supabase-storage.adapter.ts";
 import { supabaseService } from "../../../config.ts";
 import type { EnrichRestaurantGoogleDataUsecase } from "../../application/restaurant/enrich-google-data.usecase.ts";
-import { parseYtDlpTimestamp } from "./ytdlp-timestamp.ts";
+import type { IVideoDownloader } from "../../domain/video/video-downloader.ts";
+import { detectPlatform, extractExternalPostId } from "./url-parsing.ts";
 
 export class VideoImportPipeline implements IVideoImportPipeline {
   readonly #storage = new SupabaseStorageAdapter();
 
   constructor(
+    private readonly downloader: IVideoDownloader,
     private readonly transcription: ITranscriptionService,
     private readonly detector: IRestaurantDetector,
     private readonly restaurantRepo: IRestaurantRepository,
@@ -40,18 +41,24 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     platform?: "instagram" | "tiktok" | null,
     postedAt?: Date | null,
   ): Promise<ImportResult> {
-    const tag = externalPostId ?? url.split("/").pop()?.slice(0, 12) ?? "?";
+    // Tente d'extraire (platform, external_post_id) directement depuis l'URL
+    // SANS télécharger. Permet d'utiliser ces infos dans l'idempotence step 0
+    // ci-dessous quand la route /videos/import n'a pas pu les fournir.
+    const effectiveExternalPostId = externalPostId ?? extractExternalPostId(url);
+    const effectivePlatform = platform ?? detectPlatform(url);
+
+    const tag = effectiveExternalPostId ?? url.split("/").pop()?.slice(0, 12) ?? "?";
 
     // 0. Idempotence : on cherche en priorité par (uploader_id, platform, external_post_id)
     //    qui est stable dans le temps. Fallback sur source_url si pas d'ID.
     let existing: Record<string, unknown> | null = null;
-    if (externalPostId && platform) {
+    if (effectiveExternalPostId && effectivePlatform) {
       const { data } = await supabaseService
         .from("videos")
         .select("id, source_url, stored_path, stream_url, subtitles_url, transcription, created_at, video_restaurants(restaurant_id, position)")
         .eq("uploader_id", uploaderId)
-        .eq("platform", platform)
-        .eq("external_post_id", externalPostId)
+        .eq("platform", effectivePlatform)
+        .eq("external_post_id", effectiveExternalPostId)
         .maybeSingle();
       existing = data;
     }
@@ -89,12 +96,14 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     }
 
     console.log(`[Pipeline:${tag}] description="${description.slice(0, 200).replace(/\n/g, " ⏎ ")}"`);
-    // 1. Télécharger la vidéo (yt-dlp remonte aussi le timestamp de publication
-    // quand il est disponible — utilisé en aval pour l'heuristique de dédup
-    // cross-plateforme).
-    const { videoPath, audioPath, postedAt: scrapedPostedAt } = await this.#download(url);
+    // 1. Télécharger la vidéo via la cascade (yt-dlp → gallery-dl → http
+    // fallback). Chaque adapter peut remonter postedAt + externalPostId quand
+    // la plateforme les expose.
+    const download = await this.downloader.download(url);
+    const { videoPath, audioPath, postedAt: scrapedPostedAt } = download;
     // Préserve le postedAt explicitement passé par le caller (bulk profile
-    // import qui peut en avoir un plus fiable depuis le scraper de profil).
+    // import qui peut en avoir un plus fiable depuis le scraper de profil),
+    // puis fallback sur ce que le downloader a réussi à extraire.
     const effectivePostedAt = postedAt ?? scrapedPostedAt;
 
     // 2. Transcrire l'audio
@@ -114,8 +123,8 @@ export class VideoImportPipeline implements IVideoImportPipeline {
         videoPath,
         vttPath,
         transcription,
-        externalPostId,
-        platform,
+        externalPostId: effectiveExternalPostId,
+        platform: effectivePlatform,
         detectedName: null,
         detectedAddress: null,
         missing: detection.missing,
@@ -137,8 +146,8 @@ export class VideoImportPipeline implements IVideoImportPipeline {
         videoPath,
         vttPath,
         transcription,
-        externalPostId,
-        platform,
+        externalPostId: effectiveExternalPostId,
+        platform: effectivePlatform,
         detectedName: first?.name ?? null,
         detectedAddress: first?.address ?? null,
         missing: ["cuisine"],
@@ -172,8 +181,8 @@ export class VideoImportPipeline implements IVideoImportPipeline {
         videoPath,
         vttPath,
         transcription,
-        externalPostId,
-        platform,
+        externalPostId: effectiveExternalPostId,
+        platform: effectivePlatform,
         detectedName: first?.name ?? null,
         detectedAddress: first?.address ?? null,
         missing: ["place_match"],
@@ -262,8 +271,8 @@ export class VideoImportPipeline implements IVideoImportPipeline {
           videoId: match.videoId,
           userId: uploaderId,
           sourceUrl: url,
-          platform: platform ?? null,
-          externalPostId: externalPostId ?? null,
+          platform: effectivePlatform,
+          externalPostId: effectiveExternalPostId,
         });
         // On nettoie les fichiers temporaires (pas d'upload nécessaire) puis
         // on retourne le résultat existant comme un "skipped".
@@ -328,8 +337,8 @@ export class VideoImportPipeline implements IVideoImportPipeline {
           stream_url: streamUrl,
           subtitles_url: subtitlesUrl,
           transcription,
-          external_post_id: externalPostId ?? null,
-          platform: platform ?? null,
+          external_post_id: effectiveExternalPostId,
+          platform: effectivePlatform,
           needs_review: false,
           content_fingerprint: fingerprint,
           posted_at: effectivePostedAt ? effectivePostedAt.toISOString() : null,
@@ -356,8 +365,8 @@ export class VideoImportPipeline implements IVideoImportPipeline {
         videoId: videoRow.id,
         userId: uploaderId,
         sourceUrl: url,
-        platform: platform ?? null,
-        externalPostId: externalPostId ?? null,
+        platform: effectivePlatform,
+        externalPostId: effectiveExternalPostId,
       });
     }
 
@@ -587,62 +596,4 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     }
   }
 
-  async #download(
-    url: string,
-  ): Promise<{ videoPath: string; audioPath: string; postedAt: Date | null }> {
-    await Deno.mkdir(config.videoStorage.basePath, { recursive: true });
-    const filename = `${crypto.randomUUID()}`;
-    const videoPath = `${config.videoStorage.basePath}/${filename}.mp4`;
-    const audioPath = `${config.videoStorage.basePath}/${filename}.mp3`;
-
-    // CDN Instagram direct URLs : download via fetch + extract audio via ffmpeg.
-    // Sur ce chemin on n'a pas accès aux métadonnées de publication (CDN brut),
-    // donc postedAt reste null. Le scraper qui a découvert cette URL peut le
-    // passer en argument via le 6e paramètre de import() si dispo en amont.
-    if (url.includes("cdninstagram") || url.includes("scontent")) {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Direct download failed: ${res.status}`);
-      await Deno.writeFile(videoPath, new Uint8Array(await res.arrayBuffer()));
-
-      const ff = new Deno.Command("ffmpeg", {
-        args: ["-y", "-i", videoPath, "-vn", "-q:a", "0", audioPath],
-        stdout: "piped",
-        stderr: "piped",
-      });
-      const ffRes = await ff.output();
-      if (ffRes.code !== 0) {
-        throw new Error(`ffmpeg failed: ${new TextDecoder().decode(ffRes.stderr)}`);
-      }
-      return { videoPath, audioPath, postedAt: null };
-    }
-
-    // yt-dlp (TikTok, YouTube, Instagram post URL, etc.).
-    // --print imprime le timestamp Unix de publication sur stdout, et
-    // --no-simulate force quand même le download. Si le champ n'existe pas
-    // pour la plateforme, yt-dlp imprime "NA" — qu'on traite comme null.
-    const proc = new Deno.Command("yt-dlp", {
-      args: [
-        url,
-        "--output", videoPath,
-        "--extract-audio",
-        "--audio-format", "mp3",
-        "--audio-quality", "0",
-        "--postprocessor-args", `ffmpeg:-vn`,
-        "--no-playlist",
-        "--print", "%(timestamp)s",
-        "--no-simulate",
-        "--quiet",
-      ],
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const { code, stdout, stderr } = await proc.output();
-    if (code !== 0) {
-      throw new Error(`yt-dlp failed: ${new TextDecoder().decode(stderr)}`);
-    }
-
-    const postedAt = parseYtDlpTimestamp(new TextDecoder().decode(stdout));
-    return { videoPath, audioPath, postedAt };
-  }
 }

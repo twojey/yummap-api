@@ -7,6 +7,10 @@ import { SupabaseVideoDedupRepository } from "../infrastructure/repositories/sup
 import { SupabaseInvitationRepository } from "../infrastructure/repositories/supabase-invitation.repository.ts";
 import { PostgisMapQueryService } from "../infrastructure/map/postgis-map-query.service.ts";
 import { VideoImportPipeline } from "../infrastructure/video/video-import-pipeline.ts";
+import { CascadingDownloader } from "../infrastructure/video/downloaders/cascading-downloader.ts";
+import { YtDlpDownloader } from "../infrastructure/video/downloaders/ytdlp-downloader.ts";
+import { GalleryDlDownloader } from "../infrastructure/video/downloaders/gallery-dl-downloader.ts";
+import { HttpFallbackDownloader } from "../infrastructure/video/downloaders/http-fallback-downloader.ts";
 import { WhisperTranscriptionAdapter } from "../infrastructure/video/whisper-transcription.adapter.ts";
 import { GeminiDetectorAdapter } from "../infrastructure/video/gemini-detector.adapter.ts";
 import { GroqDetectorAdapter } from "../infrastructure/video/groq-detector.adapter.ts";
@@ -84,7 +88,19 @@ export function createContainer(): AppContainer {
   // pouvoir lui être injecté — l'ordre compte.
   const enrichRestaurantGoogleDataInst = new EnrichRestaurantGoogleDataUsecase(placesClient);
   const videoDedupRepo = new SupabaseVideoDedupRepository();
+
+  // Cascade de téléchargement Instagram/TikTok.
+  // Ordre : le plus stable / rapide en premier, le fallback HTTP en dernier.
+  // gallery-dl ne sait gérer qu'Instagram → CascadingDownloader le saute
+  // proprement pour les autres URLs via DownloaderError("unsupported_url").
+  const videoDownloader = new CascadingDownloader([
+    new YtDlpDownloader(),
+    new GalleryDlDownloader(),
+    new HttpFallbackDownloader(),
+  ]);
+
   const pipeline = new VideoImportPipeline(
+    videoDownloader,
     transcription,
     detector,
     restaurantRepo,
