@@ -34,6 +34,17 @@ export class SupabaseVideoImportRequestRepository implements IVideoImportRequest
     return (data ?? []).map((r: unknown) => this.#mapRow(r as Record<string, unknown>));
   }
 
+  async findPending(limit: number): Promise<VideoImportRequest[]> {
+    const { data, error } = await supabaseService
+      .from("video_import_requests")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(limit);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r: unknown) => this.#mapRow(r as Record<string, unknown>));
+  }
+
   async updateStatus(
     id: string,
     status: VideoImportStatus,

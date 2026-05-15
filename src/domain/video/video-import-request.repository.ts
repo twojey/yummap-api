@@ -8,6 +8,10 @@ export interface IVideoImportRequestRepository {
 
   findByUploader(uploaderId: string): Promise<VideoImportRequest[]>;
 
+  // Retourne les jobs en statut "pending" (FIFO sur created_at).
+  // Utilisé par le scheduler worker pour piquer la queue.
+  findPending(limit: number): Promise<VideoImportRequest[]>;
+
   updateStatus(
     id: string,
     status: VideoImportStatus,

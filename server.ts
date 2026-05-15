@@ -88,6 +88,33 @@ if (config.deployMode !== "api") {
   };
   setTimeout(tickGoogleBackfill, 5_000);
   setInterval(tickGoogleBackfill, 5 * 60_000);
+
+  // Poller video_import_requests : les jobs crees par l'API Deno Deploy
+  // (mode=api) y atterrissent en status="pending" sans personne pour les
+  // traiter. Le worker les pique d'ici. executeWithJob met status="processing"
+  // des l'entree → le tick suivant ne re-prend pas le meme job.
+  const VIDEO_IMPORT_BATCH = 3;
+  const tickVideoImports = async (): Promise<void> => {
+    try {
+      const pending = await container.videoImportRequestRepo.findPending(VIDEO_IMPORT_BATCH);
+      if (pending.length === 0) return;
+      console.log(`[Scheduler] picking up ${pending.length} pending video import(s)`);
+      for (const job of pending) {
+        container.importVideo.executeWithJob(
+          { url: job.url, description: "", uploaderId: job.uploaderId },
+          job.id,
+          container.videoImportRequestRepo,
+        ).catch((err) => {
+          // executeWithJob a deja marque le job en "failed" — on log juste.
+          console.error(`[Scheduler] video import ${job.id.slice(0, 8)} crashed:`, err.message ?? err);
+        });
+      }
+    } catch (err) {
+      console.error("[Scheduler] video import tick failed:", err);
+    }
+  };
+  setTimeout(tickVideoImports, 3_000);
+  setInterval(tickVideoImports, 15_000);
 }
 
 // Démarrage du serveur HTTP. Sur Deno Deploy on utilise Deno.serve() (pas de
