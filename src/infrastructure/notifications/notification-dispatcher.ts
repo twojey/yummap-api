@@ -55,6 +55,25 @@ export class NotificationDispatcher implements INotificationDispatcher {
         );
         break;
       }
+
+      case "PipelineFailureAlert": {
+        // Echec generique sans pattern cookies. Cause inconnue → on file un
+        // echantillon d'errorMessage pour que l'admin sache ou regarder.
+        // Markdown : on escape les backticks et `_` dans l'echantillon pour
+        // pas que Telegram interprete le contenu user-provided comme du
+        // formatting (et casse le message).
+        const safeSample = event.topErrorSample
+          .replace(/`/g, "'")
+          .replace(/[_*]/g, "")
+          .slice(0, 200);
+        await this.telegram.send(
+          `🚨 *Imports en échec*\n\n` +
+          `${event.failedCount}/${event.totalCount} imports failed sur la dernière heure (non-auth).\n\n` +
+          `Échantillon d'erreur :\n\`${safeSample}\`\n\n` +
+          `Check les logs Railway : \`railway logs --service yummap-worker\``,
+        );
+        break;
+      }
     }
   }
 
