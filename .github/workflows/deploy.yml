@@ -9,7 +9,7 @@ name: Deploy API to Deno Deploy
 #
 # Pré-requis côté dashboard Deno Deploy (Settings → Environment Variables) :
 #   DEPLOY_MODE=api
-#   DENO_ENV=production
+#   APP_ENV=production           # Deno Deploy interdit le préfixe DENO_*
 #   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
 #   GOOGLE_PLACES_API_KEY
 #   OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY (lecture seule en mode api,

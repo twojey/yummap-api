@@ -23,7 +23,10 @@ const optional = (key: string, fallback = ""): string =>
 
 export const config = {
   port: Number(optional("PORT", "8000")),
-  env: optional("DENO_ENV", "development"),
+  // On lit APP_ENV — Deno Deploy interdit toutes les env vars qui commencent
+  // par DENO_* (réservées au runtime). Fallback sur DENO_ENV pour ne pas
+  // casser les setups locaux existants.
+  env: optional("APP_ENV", optional("DENO_ENV", "development")),
   // Mode de déploiement :
   //   - "api"    : Deno Deploy. Routes HTTP seulement, pas de schedulers,
   //                pas d'exécution sync du pipeline. /videos/import enqueue

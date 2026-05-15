@@ -23,7 +23,7 @@ Les mêmes variables sont consommées partout — seule `DEPLOY_MODE` diffère.
 | Variable                       | Description                                                |
 | ------------------------------ | ---------------------------------------------------------- |
 | `DEPLOY_MODE`                  | `api` (Deno Deploy), `worker` (VM), `all` (dev local).     |
-| `DENO_ENV`                     | `production` / `staging` / `development`.                  |
+| `APP_ENV`                      | `production` / `staging` / `development`. Pas `DENO_ENV` : Deno Deploy interdit le préfixe `DENO_*`. |
 | `SUPABASE_URL`                 | URL projet Supabase.                                       |
 | `SUPABASE_SERVICE_ROLE_KEY`    | Service role (bypasses RLS). À ne **jamais** exposer côté client. |
 | `SUPABASE_ANON_KEY`            | Anon key (RLS appliquée).                                  |

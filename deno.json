@@ -28,7 +28,7 @@
   "nodeModulesDir": "auto",
   "tasks": {
     "start": "deno run --allow-net --allow-env --allow-read --allow-write --allow-run server.ts",
-    "start:dev": "DENO_ENV=development deno run --allow-net --allow-env --allow-read --allow-write --allow-run --watch server.ts",
+    "start:dev": "APP_ENV=development deno run --allow-net --allow-env --allow-read --allow-write --allow-run --watch server.ts",
     "test:unit": "deno test --config deno.json --allow-env --allow-read --allow-import tests/unit/",
     "test:integration": "RUN_INTEGRATION_TESTS=1 deno test --config deno.json --allow-env --allow-read --allow-write --allow-net --allow-import tests/integration/",
     "migrate": "deno run --allow-net --allow-env --allow-read --allow-write https://deno.land/x/nessie@2.1.0/cli.ts migrate",
