@@ -54,14 +54,23 @@ export class YtDlpDownloader implements IVideoDownloader {
 
     // Chemin yt-dlp standard. Cookies passés uniquement si dispo (sans
     // cookies yt-dlp fait quand même les URLs publiques TikTok/YouTube/…).
+    //
+    // --output utilise le template %(ext)s pour que yt-dlp produise deux
+    // fichiers separes : <uuid>.mp4 (video) + <uuid>.mp3 (audio post-extrait).
+    // Sans ca, --output qui contient deja une extension finit en .mp4.mp3.
+    // --keep-video empeche yt-dlp de supprimer le mp4 apres l'extraction.
     const cookiesPath = await ensureInstagramCookies();
+    const outputTemplate = `${config.videoStorage.basePath}/${filename}.%(ext)s`;
     const args = [
       url,
-      "--output", videoPath,
+      "--output", outputTemplate,
       "--extract-audio",
       "--audio-format", "mp3",
       "--audio-quality", "0",
-      "--postprocessor-args", `ffmpeg:-vn`,
+      "--keep-video",
+      // Force remux en mp4 : Instagram sert parfois du webm, et le pipeline
+      // (Supabase storage, lecteur video Flutter) attend du mp4.
+      "--remux-video", "mp4",
       "--no-playlist",
       "--print", "%(timestamp)s",
       "--no-simulate",
