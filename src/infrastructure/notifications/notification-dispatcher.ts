@@ -2,9 +2,13 @@ import { supabaseService } from "../../../config.ts";
 import type { INotificationDispatcher } from "../../domain/notification/notification.dispatcher.ts";
 import type { NotificationEvent } from "../../domain/notification/notification.events.ts";
 import type { IPushProvider } from "../../domain/notification/push.provider.ts";
+import type { TelegramBotAdapter } from "./telegram-bot.adapter.ts";
 
 export class NotificationDispatcher implements INotificationDispatcher {
-  constructor(private readonly push: IPushProvider) {}
+  constructor(
+    private readonly push: IPushProvider,
+    private readonly telegram: TelegramBotAdapter,
+  ) {}
 
   async dispatch(event: NotificationEvent): Promise<void> {
     switch (event.type) {
@@ -41,31 +45,14 @@ export class NotificationDispatcher implements INotificationDispatcher {
         break;
 
       case "CookiesAuthAlert": {
-        // Pas de filtre _enabled : c'est une alerte systeme, l'admin doit la
-        // recevoir tant qu'il a un push_token. La liste vient d'ADMIN_USER_IDS.
-        const adminIds = (Deno.env.get("ADMIN_USER_IDS") ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0);
-        if (adminIds.length === 0) {
-          console.warn("[CookiesAuthAlert] ADMIN_USER_IDS non configure, alerte ignoree");
-          break;
-        }
-        const { data: prefs } = await supabaseService
-          .from("notification_preferences")
-          .select("push_token")
-          .in("user_id", adminIds)
-          .not("push_token", "is", null);
-        const tokens = (prefs ?? []).map((p: { push_token: string }) => p.push_token);
-        if (tokens.length === 0) {
-          console.warn("[CookiesAuthAlert] aucun push_token enregistre pour les admins");
-          break;
-        }
-        await this.push.send(tokens, {
-          title: "Cookies Instagram expires",
-          body: `${event.failedCount}/${event.totalCount} imports en echec sur la derniere heure. Regenere les cookies.`,
-          data: { type: "CookiesAuthAlert" },
-        });
+        // Route via Telegram bot (pas FCM) : c'est une alerte admin pour 1-2
+        // destinataires fixes, l'app mobile n'a pas besoin d'etre installee.
+        await this.telegram.send(
+          `⚠️ *Cookies Instagram expirés*\n\n` +
+          `${event.failedCount}/${event.totalCount} imports en échec sur la dernière heure.\n\n` +
+          `Régénère les cookies depuis ton browser et push le nouveau secret \`INSTAGRAM_COOKIES_B64\` sur le worker. ` +
+          `Procédure dans \`DEPLOY.md\` section "Cookies Instagram".`,
+        );
         break;
       }
     }

@@ -17,6 +17,7 @@ import { GroqDetectorAdapter } from "../infrastructure/video/groq-detector.adapt
 import { OpenAIDetectorAdapter } from "../infrastructure/video/openai-detector.adapter.ts";
 import { FallbackDetector } from "../infrastructure/video/fallback-detector.ts";
 import { FcmPushAdapter } from "../infrastructure/notifications/fcm-push.adapter.ts";
+import { TelegramBotAdapter } from "../infrastructure/notifications/telegram-bot.adapter.ts";
 import { NotificationDispatcher } from "../infrastructure/notifications/notification-dispatcher.ts";
 import { GooglePlacesClient } from "../infrastructure/google-places/google-places.client.ts";
 import { ImportVideoUsecase } from "../application/video/import-video.usecase.ts";
@@ -112,7 +113,8 @@ export function createContainer(): AppContainer {
   );
 
   const pushProvider = new FcmPushAdapter();
-  const notifications = new NotificationDispatcher(pushProvider);
+  const telegram = new TelegramBotAdapter();
+  const notifications = new NotificationDispatcher(pushProvider, telegram);
 
   const importVideo = new ImportVideoUsecase(pipeline, notifications);
   const createGuide = new CreateGuideUsecase(guideRepo, notifications);
