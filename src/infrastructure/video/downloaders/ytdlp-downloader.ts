@@ -71,17 +71,18 @@ export class YtDlpDownloader implements IVideoDownloader {
       // Force remux en mp4 : Instagram sert parfois du webm, et le pipeline
       // (Supabase storage, lecteur video Flutter) attend du mp4.
       "--remux-video", "mp4",
-      // Impersonate Chrome via curl_cffi pour passer le check TLS fingerprint
-      // de TikTok. Sans ca, TikTok renvoie "Your IP address is blocked".
-      // No-op sur Instagram (qui se base sur cookies, pas TLS). Requiert
-      // curl_cffi installe dans le venv yt-dlp (cf. Dockerfile).
-      "--impersonate", "chrome",
       "--no-playlist",
       "--print", "%(timestamp)s",
       "--no-simulate",
       "--quiet",
     ];
     if (cookiesPath) args.push("--cookies", cookiesPath);
+    // TikTok detecte les TLS fingerprints Python par defaut → "IP blocked".
+    // curl_cffi (installe dans le venv via Dockerfile) sait imiter Chrome.
+    // On le sollicite uniquement pour TikTok : Instagram marche sans (et
+    // les builds ou curl_cffi se charge mal feraient crasher yt-dlp si
+    // l'option etait globale).
+    if (platform === "tiktok") args.push("--impersonate", "chrome");
 
     let proc;
     try {
