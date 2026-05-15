@@ -21,7 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/root/.local/bin:${PATH}"
-RUN pipx install yt-dlp && pipx install gallery-dl
+# curl_cffi est injecté dans le venv yt-dlp : permet a yt-dlp d'imiter le
+# TLS fingerprint d'un Chrome reel. TikTok bloque sinon les requêtes avec
+# "Your IP address is blocked" (en realite : fingerprint Python detecte).
+RUN pipx install yt-dlp \
+    && pipx inject yt-dlp curl_cffi \
+    && pipx install gallery-dl
 
 WORKDIR /app
 
