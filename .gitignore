@@ -1,0 +1,17 @@
+# Secrets et env
+.env
+.env.local
+.instagram-cookies.txt
+
+# Macros / OS
+.DS_Store
+
+# Tooling
+node_modules/
+.deno/
+*.log
+/tmp/
+coverage/
+
+# Données runtime du pipeline vidéo (téléchargements yt-dlp/ffmpeg)
+.videos/

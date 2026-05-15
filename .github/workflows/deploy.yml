@@ -1,0 +1,63 @@
+name: Deploy API to Deno Deploy
+
+# Déploie le serveur en mode "api" (Deno Deploy ne supporte pas le pipeline
+# subprocess yt-dlp/ffmpeg : le mode "worker" tourne sur Fly.io séparément).
+#
+# Pré-requis côté repo :
+#   - Secret GitHub : DENO_DEPLOY_TOKEN (généré sur dash.deno.com → Account → Access Tokens)
+#   - Projet Deno Deploy nommé exactement `yummap-api` (sinon ajuster la var ci-dessous)
+#
+# Pré-requis côté dashboard Deno Deploy (Settings → Environment Variables) :
+#   DEPLOY_MODE=api
+#   DENO_ENV=production
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
+#   GOOGLE_PLACES_API_KEY
+#   OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY (lecture seule en mode api,
+#     mais les routes peuvent y toucher → on les pousse pour parité)
+#   FCM_PROJECT_ID, FCM_SERVICE_ACCOUNT_KEY (pour les push notifications)
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET,
+#     R2_PUBLIC_BASE_URL (si on lit/sert des vidéos depuis R2)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy API
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Type-check entry points
+        # On vérifie uniquement les modules réellement déployés pour ne pas
+        # bloquer sur des erreurs pré-existantes dans des chemins non
+        # exécutés en mode "api" (ex: bulk-profile-import qui n'est pas
+        # appelable depuis Deno Deploy).
+        run: deno check server.ts config.ts
+
+      - name: Deploy to Deno Deploy
+        uses: denoland/deployctl@v1
+        with:
+          project: yummap-api
+          entrypoint: server.ts
+          # Pas de build step : Deno Deploy télécharge directement les fichiers
+          # source + les modules via les imports HTTPS/npm:.
+          root: .
+          include: |
+            server.ts
+            config.ts
+            deps.ts
+            deno.json
+            deno.lock
+            src/**

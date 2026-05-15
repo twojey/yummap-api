@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "lib": ["deno.window", "deno.unstable"],
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noImplicitReturns": true
+  },
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2.98.0",
+    "@std/assert": "jsr:@std/assert@^1.0.19",
+    "std/": "https://deno.land/std@0.224.0/",
+    "oak": "https://deno.land/x/oak@v12.6.1/mod.ts",
+    "oak/": "https://deno.land/x/oak@v12.6.1/",
+    "cors": "https://deno.land/x/cors@v1.2.2/mod.ts",
+    "zod": "npm:zod@^3.22.4",
+    "nessie/": "https://deno.land/x/nessie@2.1.0/",
+    "domain/": "./src/domain/",
+    "application/": "./src/application/",
+    "infrastructure/": "./src/infrastructure/",
+    "routes/": "./src/routes/",
+    "middleware/": "./src/middleware/",
+    "shared/": "./src/shared/"
+  },
+  "lint": {
+    "rules": { "tags": ["recommended"] }
+  },
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "start": "deno run --allow-net --allow-env --allow-read --allow-write --allow-run server.ts",
+    "start:dev": "DENO_ENV=development deno run --allow-net --allow-env --allow-read --allow-write --allow-run --watch server.ts",
+    "test:unit": "deno test --config deno.json --allow-env --allow-read --allow-import tests/unit/",
+    "test:integration": "RUN_INTEGRATION_TESTS=1 deno test --config deno.json --allow-env --allow-read --allow-write --allow-net --allow-import tests/integration/",
+    "migrate": "deno run --allow-net --allow-env --allow-read --allow-write https://deno.land/x/nessie@2.1.0/cli.ts migrate",
+    "typegen": "deno run --allow-all scripts/generate-types.ts"
+  }
+}
