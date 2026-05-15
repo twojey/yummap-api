@@ -3,4 +3,7 @@ export type NotificationEvent =
   | { type: "NewGuide"; influencerId: string; guideId: string }
   | { type: "ImportComplete"; userId: string; videoId: string; restaurantId: string }
   | { type: "ImportFailed"; userId: string; videoUrl: string; missing: string[] }
-  | { type: "NewFollower"; influencerId: string; followerId: string };
+  | { type: "NewFollower"; influencerId: string; followerId: string }
+  // Alerte admin : la cascade de telechargement Instagram echoue massivement,
+  // typiquement parce que les cookies de session ont expire.
+  | { type: "CookiesAuthAlert"; failedCount: number; totalCount: number };

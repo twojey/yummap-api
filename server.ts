@@ -115,6 +115,18 @@ if (config.deployMode !== "api") {
   };
   setTimeout(tickVideoImports, 3_000);
   setInterval(tickVideoImports, 15_000);
+
+  // Surveille la sante des cookies Instagram : si la cascade echoue
+  // massivement, push une alerte aux admins (cf. ADMIN_USER_IDS).
+  const tickCookiesHealth = async (): Promise<void> => {
+    try {
+      await container.cookiesHealth.checkAndAlert();
+    } catch (err) {
+      console.error("[Scheduler] cookies health tick failed:", err);
+    }
+  };
+  setTimeout(tickCookiesHealth, 30_000);
+  setInterval(tickCookiesHealth, 10 * 60_000);
 }
 
 // Démarrage du serveur HTTP. Sur Deno Deploy on utilise Deno.serve() (pas de

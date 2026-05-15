@@ -28,6 +28,7 @@ import { CreateInfluencerInvitationUsecase } from "../application/influencer/cre
 import { ClaimInvitationUsecase } from "../application/influencer/claim-invitation.usecase.ts";
 import { ApproveInfluencerUsecase } from "../application/influencer/approve-influencer.usecase.ts";
 import { EnrichRestaurantGoogleDataUsecase } from "../application/restaurant/enrich-google-data.usecase.ts";
+import { CookiesHealthMonitor } from "../application/monitoring/cookies-health.usecase.ts";
 import { SupabaseImportJobRepository } from "../infrastructure/repositories/supabase-import-job.repository.ts";
 import type { IRestaurantRepository } from "../domain/restaurant/restaurant.repository.ts";
 import type { IGuideRepository } from "../domain/guide/guide.repository.ts";
@@ -61,6 +62,7 @@ export interface AppContainer {
   claimInvitation: ClaimInvitationUsecase;
   approveInfluencer: ApproveInfluencerUsecase;
   enrichRestaurantGoogleData: EnrichRestaurantGoogleDataUsecase;
+  cookiesHealth: CookiesHealthMonitor;
 }
 
 export function createContainer(): AppContainer {
@@ -125,12 +127,14 @@ export function createContainer(): AppContainer {
   // Réutilise l'instance créée plus haut pour le pipeline — un seul singleton.
   const enrichRestaurantGoogleData = enrichRestaurantGoogleDataInst;
 
+  const cookiesHealth = new CookiesHealthMonitor(notifications);
+
   return {
     deployMode: config.deployMode,
     restaurantRepo, guideRepo, userRepo, mapQuery, placesClient, notifications,
     importVideo, createGuide, onboarding, bulkProfileImport,
     importJobRepo, videoImportRequestRepo, invitationRepo,
     createAdminInvitation, createInfluencerInvitation, claimInvitation, approveInfluencer,
-    enrichRestaurantGoogleData,
+    enrichRestaurantGoogleData, cookiesHealth,
   };
 }

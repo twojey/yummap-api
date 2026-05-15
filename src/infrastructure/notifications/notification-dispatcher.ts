@@ -39,6 +39,35 @@ export class NotificationDispatcher implements INotificationDispatcher {
           data: { type: "ImportFailed", missing: event.missing.join(",") },
         }, "import_failed");
         break;
+
+      case "CookiesAuthAlert": {
+        // Pas de filtre _enabled : c'est une alerte systeme, l'admin doit la
+        // recevoir tant qu'il a un push_token. La liste vient d'ADMIN_USER_IDS.
+        const adminIds = (Deno.env.get("ADMIN_USER_IDS") ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        if (adminIds.length === 0) {
+          console.warn("[CookiesAuthAlert] ADMIN_USER_IDS non configure, alerte ignoree");
+          break;
+        }
+        const { data: prefs } = await supabaseService
+          .from("notification_preferences")
+          .select("push_token")
+          .in("user_id", adminIds)
+          .not("push_token", "is", null);
+        const tokens = (prefs ?? []).map((p: { push_token: string }) => p.push_token);
+        if (tokens.length === 0) {
+          console.warn("[CookiesAuthAlert] aucun push_token enregistre pour les admins");
+          break;
+        }
+        await this.push.send(tokens, {
+          title: "Cookies Instagram expires",
+          body: `${event.failedCount}/${event.totalCount} imports en echec sur la derniere heure. Regenere les cookies.`,
+          data: { type: "CookiesAuthAlert" },
+        });
+        break;
+      }
     }
   }
 
