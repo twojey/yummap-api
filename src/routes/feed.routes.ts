@@ -42,7 +42,7 @@ export function registerFeedRoutes(router: Router, _container: AppContainer) {
     // deno-lint-ignore no-explicit-any
     ctx.response.body = rows.map((v: any) => ({
       videoId: v.video_id,
-      thumbnailUrl: v.stream_url,         // pas de thumbnail séparée encore (TODO_OPTIMIZATIONS)
+      thumbnailUrl: v.thumbnail_url ?? v.stream_url,
       videoUrl: v.stream_url,
       vttUrl: v.subtitles_url,
       restaurantId: v.restaurant_id,

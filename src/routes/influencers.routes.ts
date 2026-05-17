@@ -167,7 +167,7 @@ export function registerInfluencerRoutes(router: Router, _container: AppContaine
     const { data, error } = await supabaseService
       .from("videos")
       .select(
-        "id, stream_url, subtitles_url, created_at, video_restaurants!inner(position, restaurants!inner(id, place_id, name))",
+        "id, stream_url, thumbnail_url, subtitles_url, created_at, video_restaurants!inner(position, restaurants!inner(id, place_id, name))",
       )
       .eq("uploader_id", ctx.params.id)
       .eq("video_restaurants.position", 0)
@@ -181,10 +181,10 @@ export function registerInfluencerRoutes(router: Router, _container: AppContaine
       const r = link?.restaurants;
       return {
         id: v.id,
-        // Pas de thumbnailUrl séparé en base : on prend la stream_url comme
-        // poster (le player extrait la frame 0). Côté app la grille initialise
-        // le video_player en pause pour afficher cette frame.
-        thumbnailUrl: v.stream_url,
+        // thumbnail_url généré par le pipeline (WebP ~15kB). Fallback sur
+        // stream_url pour les vidéos importées avant le backfill (cf.
+        // scripts/backfill_video_thumbnails.ts).
+        thumbnailUrl: v.thumbnail_url ?? v.stream_url,
         videoUrl: v.stream_url,
         vttUrl: v.subtitles_url,
         restaurantId: r?.id,

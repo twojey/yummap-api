@@ -4,17 +4,21 @@ import { supabaseService } from "../../config.ts";
 
 // GET /tags
 //
-// Retourne la taxonomie complète (5 catégories standard + leurs tags) pour
-// alimenter les filtres rapides côté app (chips au-dessus de la map).
+// Retourne la taxonomie complète (7 catégories canoniques + leurs tags) pour
+// alimenter les sélecteurs côté clients (filtres map, dropdowns admin/influencer).
 //
 // Format :
 // [
-//   { slug, name, isRequired, sortOrder, tags: [{ id, name }] },
+//   { slug, name, isRequired, sortOrder, tags: [{ id, slug, name }] },
 //   ...
 // ]
 //
-// Les catégories sont retournées triées par sort_order (cuisine en premier),
-// et les tags par nom alphabétique pour avoir un affichage stable.
+// Le `slug` du tag est l'identifiant stable côté client (matche la whitelist
+// dans api/src/domain/tags/tag-taxonomy.ts). Le `id` (UUID) est utilisé pour
+// les jointures restaurant_tags.
+//
+// Catégories triées par sort_order (cuisine en premier), tags triés par
+// sort_order de catégorie puis par nom pour un affichage stable.
 export function registerTagRoutes(router: Router) {
   router.get("/tags", guestOrAuth, async (ctx) => {
     const { data: cats, error: catsErr } = await supabaseService
@@ -25,14 +29,14 @@ export function registerTagRoutes(router: Router) {
 
     const { data: tags, error: tagsErr } = await supabaseService
       .from("tags")
-      .select("id, category_id, name")
+      .select("id, category_id, slug, name")
       .order("name", { ascending: true });
     if (tagsErr) throw new Error(`tags load failed: ${tagsErr.message}`);
 
-    const tagsByCategory = new Map<string, Array<{ id: string; name: string }>>();
-    for (const t of (tags ?? []) as Array<{ id: string; category_id: string; name: string }>) {
+    const tagsByCategory = new Map<string, Array<{ id: string; slug: string; name: string }>>();
+    for (const t of (tags ?? []) as Array<{ id: string; category_id: string; slug: string; name: string }>) {
       const list = tagsByCategory.get(t.category_id) ?? [];
-      list.push({ id: t.id, name: t.name });
+      list.push({ id: t.id, slug: t.slug, name: t.name });
       tagsByCategory.set(t.category_id, list);
     }
 

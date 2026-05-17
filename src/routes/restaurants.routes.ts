@@ -105,7 +105,7 @@ export function registerRestaurantRoutes(router: Router, container: AppContainer
     // deno-lint-ignore no-explicit-any
     const { data: vrRows } = await supabaseService
       .from("video_restaurants")
-      .select("start_seconds, videos!inner(id, stream_url, subtitles_url, transcription, created_at, uploader_id, users!uploader_id(id, display_name, avatar_url))")
+      .select("start_seconds, videos!inner(id, stream_url, thumbnail_url, subtitles_url, transcription, created_at, uploader_id, users!uploader_id(id, display_name, avatar_url))")
       .eq("restaurant_id", restaurant.id)
       .order("created_at", { referencedTable: "videos", ascending: false })
       .limit(50) as { data: any[] | null };
@@ -168,7 +168,7 @@ export function registerRestaurantRoutes(router: Router, container: AppContainer
       // deno-lint-ignore no-explicit-any
       videos: sortVideosByFollow((videos ?? []) as any[], followedSet).map((v: any) => ({
         id: v.id,
-        thumbnailUrl: v.stream_url,
+        thumbnailUrl: v.thumbnail_url ?? v.stream_url,
         videoUrl: v.stream_url,
         vttUrl: v.subtitles_url,
         transcription: v.transcription,
@@ -219,7 +219,7 @@ export function registerRestaurantRoutes(router: Router, container: AppContainer
     // deno-lint-ignore no-explicit-any
     const { data: vrRows } = await supabaseService
       .from("video_restaurants")
-      .select("start_seconds, videos!inner(id, stream_url, subtitles_url, transcription, created_at, uploader_id, users!uploader_id(id, display_name, avatar_url))")
+      .select("start_seconds, videos!inner(id, stream_url, thumbnail_url, subtitles_url, transcription, created_at, uploader_id, users!uploader_id(id, display_name, avatar_url))")
       .eq("restaurant_id", restaurant.id)
       .order("created_at", { referencedTable: "videos", ascending: false })
       .limit(20) as { data: any[] | null };
@@ -242,7 +242,7 @@ export function registerRestaurantRoutes(router: Router, container: AppContainer
       // deno-lint-ignore no-explicit-any
       videos: sortVideosByFollow((videos ?? []) as any[], summaryFollowedSet).map((v: any) => ({
         id: v.id,
-        thumbnailUrl: v.stream_url,
+        thumbnailUrl: v.thumbnail_url ?? v.stream_url,
         videoUrl: v.stream_url,
         vttUrl: v.subtitles_url,
         transcription: v.transcription,

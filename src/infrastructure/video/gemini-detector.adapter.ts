@@ -2,6 +2,7 @@ import { config } from "../../../config.ts";
 import type { IRestaurantDetector, DetectionResult } from "../../domain/video/video.pipeline.ts";
 import { DailyQuotaExceededError } from "../../shared/errors.ts";
 import { parseDetectionJson } from "./detection-parser.ts";
+import { buildExtractionPrompt } from "./restaurant-extraction.prompt.ts";
 
 // Parse une réponse d'erreur Google API (google.rpc.Status). Renvoie:
 // - isDaily: true si la violation est un quota PerDay (vs PerMinute)
@@ -41,50 +42,7 @@ export class GeminiDetectorAdapter implements IRestaurantDetector {
   }
 
   async detect(input: { description: string; transcription: string }): Promise<DetectionResult> {
-    // Prompt aligné sur la taxonomie de la base (migration 0006) :
-    // 5 catégories standard avec slug fixe. cuisine est OBLIGATOIRE — sans ça,
-    // l'import est marqué incomplete (le pipeline ne crée pas de resto sans cuisine).
-    // Les 4 autres sont optionnelles : on préfère 0 tag à un mauvais tag.
-    const prompt = `
-Tu es un assistant qui extrait les restaurants mentionnés dans la description et la transcription d'une vidéo TikTok/Instagram. La vidéo peut parler d'1, 2 ou plusieurs restaurants (compilations "top 5", food crawls "on a fait 3 spots"…).
-
-Description de la vidéo : """${input.description}"""
-Transcription audio : """${input.transcription}"""
-
-Réponds UNIQUEMENT en JSON valide, sans markdown. Deux formats possibles :
-
-Si tu identifies au moins 1 restaurant avec son nom ET son adresse/arrondissement :
-{
-  "status": "complete",
-  "restaurants": [
-    { "name": "<nom>", "address": "<adresse>", "startSeconds": <int|null> }
-    // ... un objet par restaurant dans l'ordre où ils apparaissent dans la vidéo
-  ],
-  "tags": [
-    // OBLIGATOIRE : exactement 1 tag de cuisine si tu peux la déterminer
-    {"category": "cuisine",  "name": "<ex: italienne, française, japonaise, libanaise, mexicaine, asiatique, méditerranéenne>"},
-
-    // OPTIONNEL : 0 ou plusieurs tags par catégorie ci-dessous, uniquement si la vidéo l'indique clairement
-    {"category": "dietary",  "name": "<ex: vegan, végétarien, halal, casher, sans gluten, sans lactose, bio>"},
-    {"category": "dish",     "name": "<ex: pizza, burger, sushi, kebab, ramen, tacos, pâtes, brunch, poke>"},
-    {"category": "ambiance", "name": "<ex: romantique, familial, chic, branché, calme, business, festif, terrasse, rooftop>"},
-    {"category": "formula",  "name": "<ex: à volonté, brunch, gastronomique, street food, fast-food, bistrot, bar à vin, omakase>"}
-  ]
-}
-
-Règles strictes :
-- N'invente AUCUN restaurant. Si tu n'es pas certain qu'un endroit est mentionné, ne le mets pas.
-- startSeconds : uniquement si tu vois clairement un repère dans la transcription, sinon null.
-- Les tags sont partagés (la vidéo a une ambiance globale, pas un set de tags par resto).
-- Catégories de tags autorisées UNIQUEMENT : cuisine, dietary, dish, ambiance, formula.
-- Tous les "name" en français, en minuscules.
-- Si la cuisine n'est pas claire, mets "fusion" ou "world" plutôt que de deviner.
-- Ne devine JAMAIS dietary/dish/ambiance/formula : ne mets le tag que si la vidéo le dit explicitement.
-
-Si tu ne trouves pas le nom OU l'adresse d'au moins 1 restaurant :
-{"status": "incomplete", "missing": ["name"|"address"]}
-    `.trim();
-
+    const prompt = buildExtractionPrompt(input);
     const response = await this.#callWithRetry(prompt);
 
     const data = await response.json() as {
@@ -135,7 +93,7 @@ Si tu ne trouves pas le nom OU l'adresse d'au moins 1 restaurant :
       const delayMs = Math.max(parsed.retryDelaySec ?? 60, 60) * 1000;
       const resumeAfter = new Date(Date.now() + delayMs);
       console.warn(`[Gemini] DAILY quota ${parsed.quotaId} exceeded → pause ${delayMs / 1000}s (until ${resumeAfter.toISOString()})`);
-      throw new DailyQuotaExceededError("gemini", resumeAfter, parsed.quotaId);
+      throw new DailyQuotaExceededError("gemini", resumeAfter, parsed.quotaId ?? undefined);
     }
 
     const retryable = response.status === 429 || response.status >= 500;

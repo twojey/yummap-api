@@ -3,6 +3,7 @@ import { z } from "../../deps.ts";
 import { guestOrAuth } from "../middleware/auth.middleware.ts";
 import { ValidationError } from "../shared/errors.ts";
 import { analyticsService } from "../infrastructure/analytics/analytics.service.ts";
+import { detectPlatform } from "../infrastructure/video/url-parsing.ts";
 import type { AppContainer } from "../boot/container.ts";
 
 const ImportSchema = z.object({
@@ -31,6 +32,16 @@ export function registerVideoRoutes(router: Router, container: AppContainer) {
     const body = await ctx.request.body({ type: "json" }).value;
     const parsed = ImportSchema.safeParse(body);
     if (!parsed.success) throw new ValidationError("Invalid import params", parsed.error.issues);
+
+    // Fail-fast : rejette les URLs hors IG/TT sans toucher au pipeline.
+    // Le client filtre déjà avant submit, mais on garde ce safeguard serveur
+    // pour les anciens clients ou les appels directs à l'API.
+    if (!detectPlatform(parsed.data.url)) {
+      throw new ValidationError(
+        "unsupported_platform: only Instagram and TikTok are supported",
+        [{ path: ["url"], message: "unsupported_platform", code: "custom" }],
+      );
+    }
 
     // Créer le job en base (retour immédiat). Source unique de vérité pour la
     // queue : le worker poll cette table.

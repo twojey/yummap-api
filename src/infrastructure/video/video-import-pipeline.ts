@@ -1,5 +1,5 @@
 import type { IVideoImportPipeline, ImportResult, ITranscriptionService, IRestaurantDetector } from "../../domain/video/video.pipeline.ts";
-import { ALLOWED_TAG_SLUGS } from "../../domain/video/video.pipeline.ts";
+import { isValidTag } from "../../domain/tags/tag-taxonomy.ts";
 import type { IRestaurantRepository } from "../../domain/restaurant/restaurant.repository.ts";
 import type { IVideoDedupRepository } from "../../domain/video/video-dedup.repository.ts";
 import {
@@ -14,6 +14,7 @@ import { supabaseService } from "../../../config.ts";
 import type { EnrichRestaurantGoogleDataUsecase } from "../../application/restaurant/enrich-google-data.usecase.ts";
 import type { IVideoDownloader } from "../../domain/video/video-downloader.ts";
 import { detectPlatform, extractExternalPostId } from "./url-parsing.ts";
+import { generateThumbnail } from "./video-thumbnail.ts";
 
 export class VideoImportPipeline implements IVideoImportPipeline {
   readonly #storage = new SupabaseStorageAdapter();
@@ -101,6 +102,20 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     // la plateforme les expose.
     const download = await this.downloader.download(url);
     const { videoPath, audioPath, postedAt: scrapedPostedAt } = download;
+
+    // Fail-fast : si le contenu téléchargé n'est pas une vidéo (carrousel
+    // photo IG, story image, post statique TikTok…), on s'arrête tout de
+    // suite. Le client recevra "not_a_video" dans errorMessage et affichera
+    // un message clair. Sinon Whisper transcrit du silence et le LLM ne
+    // trouve rien → on aboutit au flou "incomplete" qui est trompeur.
+    const lowerPath = videoPath.toLowerCase();
+    const imageExts = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"];
+    if (imageExts.some((ext) => lowerPath.endsWith(ext))) {
+      console.log(`[Pipeline:${tag}] downloaded content is not a video (${videoPath}) → fail`);
+      await Deno.remove(videoPath).catch(() => {});
+      await Deno.remove(audioPath).catch(() => {});
+      throw new Error("not_a_video: shared content is not a video (image or carousel post)");
+    }
     // Préserve le postedAt explicitement passé par le caller (bulk profile
     // import qui peut en avoir un plus fiable depuis le scraper de profil),
     // puis fallback sur ce que le downloader a réussi à extraire.
@@ -133,9 +148,9 @@ export class VideoImportPipeline implements IVideoImportPipeline {
 
     // Cuisine obligatoire : si l'IA n'a pas pu déterminer la cuisine, on traite
     // comme incomplete (review manuel) plutôt que de créer des restos sans cuisine.
-    // Les autres catégories (dietary/dish/ambiance/formula) restent optionnelles.
+    // Les autres catégories sont optionnelles.
     const hasCuisine = (detection.tags ?? []).some(
-      (t) => t.category?.trim().toLowerCase() === "cuisine" && t.name?.trim(),
+      (t) => t.category?.trim().toLowerCase() === "cuisine" && t.slug?.trim(),
     );
     if (!hasCuisine) {
       console.log(`[Pipeline:${tag}] no cuisine tag → incomplete (needs review)`);
@@ -209,6 +224,20 @@ export class VideoImportPipeline implements IVideoImportPipeline {
         phoneNumber: r.place.phoneNumber ?? null,
       });
       await this.enrichGoogle.run(restaurant.id, r.place.placeId);
+
+      // Vérifier que les horaires ont bien été récupérés de Google
+      const { data: restaurantCheck } = await supabaseService
+        .from("restaurants")
+        .select("opening_hours")
+        .eq("id", restaurant.id)
+        .single();
+
+      if (!restaurantCheck?.opening_hours || !Object.keys(restaurantCheck.opening_hours as Record<string, unknown>).length) {
+        console.error(
+          `[Pipeline:${tag}] ALERT: ${r.place.name} (${r.place.placeId}) has no opening_hours from Google — may need manual review`,
+        );
+      }
+
       if (detection.tags && detection.tags.length > 0) {
         await this.#linkTags(restaurant.id, detection.tags);
       }
@@ -315,6 +344,20 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     const streamUrl = await this.#storage.upload(`${key}.mp4`, videoBytes, "video/mp4");
     const subtitlesUrl = await this.#storage.upload(`${key}.vtt`, vttBytes, "text/vtt");
 
+    // 6bis. Thumbnail JPEG (~30 kB) généré localement via ffmpeg puis uploadé.
+    // Best-effort : si ffmpeg échoue (vidéo corrompue, format exotique) on
+    // continue sans bloquer l'import — `thumbnail_url` restera null et le
+    // frontend fera fallback sur stream_url comme avant.
+    let thumbnailUrl: string | null = null;
+    try {
+      const { thumbPath, contentType } = await generateThumbnail(videoPath);
+      const thumbBytes = await Deno.readFile(thumbPath);
+      thumbnailUrl = await this.#storage.upload(`${key}_thumb.jpg`, thumbBytes, contentType);
+      await Deno.remove(thumbPath).catch(() => {});
+    } catch (err) {
+      console.warn(`[Pipeline:${tag}] thumbnail generation failed: ${(err as Error).message}`);
+    }
+
     // Nettoyage des fichiers locaux après upload
     await Deno.remove(videoPath).catch(() => {});
     await Deno.remove(vttPath).catch(() => {});
@@ -335,6 +378,7 @@ export class VideoImportPipeline implements IVideoImportPipeline {
           source_url: url,
           stored_path: videoPath,
           stream_url: streamUrl,
+          thumbnail_url: thumbnailUrl,
           subtitles_url: subtitlesUrl,
           transcription,
           external_post_id: effectiveExternalPostId,
@@ -522,77 +566,74 @@ export class VideoImportPipeline implements IVideoImportPipeline {
 
   async #linkTags(
     restaurantId: string,
-    tags: Array<{ category: string; name: string }>,
+    tags: Array<{ category: string; slug: string }>,
   ): Promise<void> {
-    // Normalise (lowercase, trim), filtre les catégories hors taxonomie (Gemini
-    // hallucine parfois "type", "moment", "prix"…), dédoublonne par (category, name).
+    // Validation stricte contre la taxonomie. Tout tag avec un (category, slug)
+    // hors whitelist est silencieusement rejeté — on ne pollue plus la base
+    // avec des hallucinations LLM (cf. migration 0020 qui a nettoyé l'historique).
     const seen = new Set<string>();
     const normalized = tags
       .map((t) => ({
         category: t.category?.trim().toLowerCase() ?? "",
-        name: t.name?.trim().toLowerCase() ?? "",
+        slug: t.slug?.trim().toLowerCase() ?? "",
       }))
-      .filter((t) => t.category && t.name)
+      .filter((t) => t.category && t.slug)
       .filter((t) => {
-        if (!ALLOWED_TAG_SLUGS.has(t.category as never)) {
-          console.warn(`[Pipeline] skip tag: unknown category "${t.category}" (allowed: cuisine|dietary|dish|ambiance|formula)`);
+        if (!isValidTag(t.category, t.slug)) {
+          console.warn(`[Pipeline] reject tag hors whitelist: ${t.category}/${t.slug}`);
           return false;
         }
         return true;
       })
       .filter((t) => {
-        const key = `${t.category}::${t.name}`;
+        const key = `${t.category}::${t.slug}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
     if (normalized.length === 0) return;
 
-    // Charge en 1 query toutes les catégories autorisées (slug → id).
-    // Les catégories sont fixées par la migration 0006, on ne les crée jamais à la volée.
-    const { data: cats, error: catsErr } = await supabaseService
-      .from("tag_categories")
-      .select("id, slug");
-    if (catsErr) {
-      console.warn(`[Pipeline] tag_categories load failed: ${catsErr.message}`);
+    // Tous les tags canoniques existent déjà en base (seedés par la migration
+    // 0020). On résout (category_slug, tag_slug) → tag_id en 1 query.
+    const categorySlugs = [...new Set(normalized.map((t) => t.category))];
+    const tagSlugs = [...new Set(normalized.map((t) => t.slug))];
+    const { data: rows, error: tagsErr } = await supabaseService
+      .from("tags")
+      .select("id, slug, tag_categories!inner(slug)")
+      .in("slug", tagSlugs)
+      .in("tag_categories.slug", categorySlugs);
+    if (tagsErr) {
+      console.warn(`[Pipeline] tags lookup failed: ${tagsErr.message}`);
       return;
     }
-    const catBySlug = new Map(
-      ((cats ?? []) as Array<{ id: string; slug: string }>).map((c) => [c.slug, c.id]),
-    );
+    // tag_categories peut être renvoyé comme objet OU array selon la version
+    // du client supabase-js : on couvre les deux shapes.
+    type TagRow = {
+      id: string;
+      slug: string;
+      tag_categories: { slug: string } | Array<{ slug: string }>;
+    };
+    const tagIdByKey = new Map<string, string>();
+    for (const r of (rows ?? []) as unknown as TagRow[]) {
+      const catSlug = Array.isArray(r.tag_categories)
+        ? r.tag_categories[0]?.slug
+        : r.tag_categories?.slug;
+      if (catSlug) tagIdByKey.set(`${catSlug}::${r.slug}`, r.id);
+    }
 
-    for (const tag of normalized) {
-      const categoryId = catBySlug.get(tag.category);
-      if (!categoryId) {
-        // Catégorie déclarée mais absente en base : la migration n'a pas tourné ?
-        console.warn(`[Pipeline] tag category not in DB: ${tag.category}`);
-        continue;
-      }
+    const links = normalized
+      .map((t) => ({
+        restaurant_id: restaurantId,
+        tag_id: tagIdByKey.get(`${t.category}::${t.slug}`),
+      }))
+      .filter((l): l is { restaurant_id: string; tag_id: string } => !!l.tag_id);
+    if (links.length === 0) return;
 
-      // Le tag lui-même peut être nouveau (Gemini propose un type de cuisine
-      // qu'on n'avait pas seedé) → on l'upsert. La catégorie est figée, pas le tag.
-      const { data: t, error: tErr } = await supabaseService
-        .from("tags")
-        .upsert(
-          { category_id: categoryId, name: tag.name },
-          { onConflict: "category_id,name" },
-        )
-        .select("id")
-        .single();
-      if (tErr) {
-        console.warn(`[Pipeline] tags upsert failed (${tag.category}/${tag.name}): ${tErr.message}`);
-        continue;
-      }
-
-      const { error: linkErr } = await supabaseService
-        .from("restaurant_tags")
-        .upsert(
-          { restaurant_id: restaurantId, tag_id: t.id },
-          { onConflict: "restaurant_id,tag_id" },
-        );
-      if (linkErr) {
-        console.warn(`[Pipeline] restaurant_tags upsert failed: ${linkErr.message}`);
-      }
+    const { error: linkErr } = await supabaseService
+      .from("restaurant_tags")
+      .upsert(links, { onConflict: "restaurant_id,tag_id" });
+    if (linkErr) {
+      console.warn(`[Pipeline] restaurant_tags upsert failed: ${linkErr.message}`);
     }
   }
 

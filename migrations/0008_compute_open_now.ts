@@ -111,7 +111,7 @@ export default class extends AbstractMigration<ClientPostgreSQL> {
            WHERE rt.restaurant_id = r.id AND tc.name = 'cuisine' LIMIT 1) AS cuisine_type,
           COALESCE(compute_open_now(r.opening_hours, now_paris), r.open_now) AS open_now,
           r.google_rating,
-          EXISTS(SELECT 1 FROM videos v WHERE v.restaurant_id = r.id) AS has_videos,
+          EXISTS(SELECT 1 FROM video_restaurants vr WHERE vr.restaurant_id = r.id) AS has_videos,
           CASE WHEN p_user_id IS NOT NULL THEN
             EXISTS(SELECT 1 FROM watchlist w WHERE w.user_id = p_user_id AND w.restaurant_id = r.id)
           ELSE FALSE END AS is_in_watchlist,

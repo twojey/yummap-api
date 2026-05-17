@@ -26,17 +26,13 @@ export interface IRestaurantDetector {
   }): Promise<DetectionResult>;
 }
 
-// Slugs autorisés — alignés sur la migration 0006_tag_taxonomy.
-// Seules ces 5 catégories peuvent porter un tag. Tout le reste est ignoré
-// (Gemini hallucine parfois "type", "moment", "prix"… → rejeté côté pipeline).
-export type TagCategorySlug = "cuisine" | "dietary" | "dish" | "ambiance" | "formula";
-export const ALLOWED_TAG_SLUGS: ReadonlySet<TagCategorySlug> = new Set([
-  "cuisine", "dietary", "dish", "ambiance", "formula",
-]);
-
+// Le détecteur renvoie des paires (category_slug, tag_slug). La validation
+// stricte contre la whitelist se fait dans le pipeline via isValidTag (voir
+// domain/tags/tag-taxonomy.ts). Tout tag hors taxonomie est silencieusement
+// rejeté — on ne pollue plus la base avec des hallucinations LLM.
 export interface DetectedTag {
-  category: string;  // doit être dans ALLOWED_TAG_SLUGS, sinon skip
-  name: string;      // ex: "italienne", "romantique", "bistrot", "brunch"
+  category: string; // slug de catégorie (cuisine, type_lieu, regime, …)
+  slug: string;     // slug de tag canonique (francaise, italienne, vegan, …)
 }
 
 // Un resto détecté dans la vidéo. startSeconds = timestamp où l'IA pense que

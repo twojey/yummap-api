@@ -34,6 +34,15 @@ export class EnrichRestaurantGoogleDataUsecase {
       console.warn(`[EnrichGoogleData] getReviews(${placeId}) failed: ${(err as Error).message}`);
     }
 
+    // ⚠️ ALERTE: si Google n'a pas retourné d'horaires, c'est un problème
+    // qui devra être résolu manuellement via l'admin ou un audit périodique.
+    // Voir: scripts/fix_missing_restaurant_hours.ts pour corriger les stales.
+    if (!openingHours || (typeof openingHours === "object" && !Object.keys(openingHours).length)) {
+      console.error(
+        `[EnrichGoogleData:MISSING_HOURS] restaurant=${restaurantId} placeId=${placeId} — pas d'horaires retournés par Google`,
+      );
+    }
+
     const { error } = await supabaseService
       .from("restaurants")
       .update({

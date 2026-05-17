@@ -12,6 +12,8 @@ export class PostgisMapQueryService implements IMapQueryService {
       p_tag_ids: filters.tagIds ?? null,
       p_open_now: filters.openNow ?? null,
       p_min_rating: filters.minRating ?? null,
+      p_max_rating: filters.maxRating ?? null,
+      p_in_watchlist_only: filters.inWatchlistOnly ?? null,
       p_user_id: userId ?? null,
     });
 
