@@ -143,6 +143,7 @@ export class TikWmDownloader implements IVideoDownloader {
       postedAt,
       externalPostId: extractExternalPostId(url),
       platform: "tiktok",
+      authorHandle: null,
     };
   }
 }

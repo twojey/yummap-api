@@ -15,6 +15,10 @@ import type { EnrichRestaurantGoogleDataUsecase } from "../../application/restau
 import type { IVideoDownloader } from "../../domain/video/video-downloader.ts";
 import { detectPlatform, extractExternalPostId } from "./url-parsing.ts";
 import { generateThumbnail } from "./video-thumbnail.ts";
+import {
+  type InfluencerLookupPort,
+  resolveInfluencerByHandle,
+} from "../../application/influencer/resolve-influencer.ts";
 
 export class VideoImportPipeline implements IVideoImportPipeline {
   readonly #storage = new SupabaseStorageAdapter();
@@ -32,6 +36,9 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     // construction pour laisser les usages historiques (tests, bulk profile
     // qui dédup déjà par uploader+post_id) fonctionner sans casser.
     private readonly dedupRepo: IVideoDedupRepository | null = null,
+    // Résolution d'influenceur depuis le handle auteur de la vidéo. Optionnel :
+    // si null, la vidéo reste attribuée au partageur (uploaderId d'entrée).
+    private readonly influencerResolver: InfluencerLookupPort | null = null,
   ) {}
 
   async import(
@@ -121,6 +128,23 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     // import qui peut en avoir un plus fiable depuis le scraper de profil),
     // puis fallback sur ce que le downloader a réussi à extraire.
     const effectivePostedAt = postedAt ?? scrapedPostedAt;
+
+    // Attribution à l'influenceur : quand un utilisateur partage une vidéo
+    // d'un compte créateur, on attribue la vidéo à l'influenceur correspondant
+    // (handle auteur) plutôt qu'au partageur. Le restaurant rejoint alors le
+    // Guide Auto de l'influenceur. Si aucun handle / pas de resolver → on
+    // garde le partageur. La réattribution est faite AVANT tout INSERT pour
+    // que video.uploader_id, le Guide Auto et le storage pointent l'influenceur.
+    if (this.influencerResolver && download.authorHandle) {
+      const influencerId = await resolveInfluencerByHandle(
+        download.authorHandle,
+        this.influencerResolver,
+      );
+      if (influencerId && influencerId !== uploaderId) {
+        console.log(`[Pipeline:${tag}] attribution → influenceur @${download.authorHandle} (${influencerId.slice(0, 8)})`);
+        uploaderId = influencerId;
+      }
+    }
 
     // 2. Transcrire l'audio
     const { text: transcription, vttPath } = await this.transcription.transcribe(audioPath);

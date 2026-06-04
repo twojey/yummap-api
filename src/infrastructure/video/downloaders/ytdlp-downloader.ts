@@ -49,7 +49,7 @@ export class YtDlpDownloader implements IVideoDownloader {
           err,
         );
       }
-      return { videoPath, audioPath, postedAt: null, externalPostId, platform };
+      return { videoPath, audioPath, postedAt: null, externalPostId, platform, authorHandle: null };
     }
 
     // Chemin yt-dlp standard. Cookies passés uniquement si dispo (sans
@@ -72,7 +72,9 @@ export class YtDlpDownloader implements IVideoDownloader {
       // (Supabase storage, lecteur video Flutter) attend du mp4.
       "--remux-video", "mp4",
       "--no-playlist",
-      "--print", "%(timestamp)s",
+      // timestamp + handle auteur séparés par une tabulation, sur une ligne.
+      // uploader_id = le @handle du compte (sans @) sur IG comme TikTok.
+      "--print", "%(timestamp)s\t%(uploader_id)s",
       "--no-simulate",
       "--quiet",
     ];
@@ -104,8 +106,11 @@ export class YtDlpDownloader implements IVideoDownloader {
       throw new DownloaderError(kind, this.name, msg.slice(0, 500));
     }
 
-    const postedAt = parseYtDlpTimestamp(new TextDecoder().decode(stdout));
-    return { videoPath, audioPath, postedAt, externalPostId, platform };
+    const printed = new TextDecoder().decode(stdout);
+    const [tsField, handleField] = printed.split("\n")[0]?.split("\t") ?? [];
+    const postedAt = parseYtDlpTimestamp(tsField ?? "");
+    const authorHandle = normalizeHandle(handleField);
+    return { videoPath, audioPath, postedAt, externalPostId, platform, authorHandle };
   }
 
   async #extractAudio(videoPath: string, audioPath: string): Promise<void> {
@@ -123,6 +128,16 @@ export class YtDlpDownloader implements IVideoDownloader {
       );
     }
   }
+}
+
+/// Normalise le handle auteur renvoyé par yt-dlp (`%(uploader_id)s`).
+/// Retire un éventuel `@`, trim, et écarte les valeurs vides ou "NA" que
+/// yt-dlp imprime quand le champ est absent. Exporté pour test.
+export function normalizeHandle(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  const cleaned = raw.trim().replace(/^@/, "");
+  if (!cleaned || cleaned.toUpperCase() === "NA" || cleaned === "None") return null;
+  return cleaned;
 }
 
 /// Heuristique sur la sortie stderr de yt-dlp pour classifier l'erreur.

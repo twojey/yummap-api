@@ -96,6 +96,7 @@ export class GalleryDlDownloader implements IVideoDownloader {
       postedAt,
       externalPostId: extractExternalPostId(url),
       platform: "instagram",
+      authorHandle: null,
     };
   }
 }

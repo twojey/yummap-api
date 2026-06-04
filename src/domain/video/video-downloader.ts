@@ -29,6 +29,11 @@ export interface DownloadResult {
   /// Plateforme détectée depuis l'URL, utile en aval pour la dédup et le
   /// stockage.
   platform: "instagram" | "tiktok" | null;
+  /// Handle de l'auteur du post sur la plateforme (le compte qui a publié la
+  /// vidéo), sans le `@`. Sert à attribuer la vidéo à l'influenceur
+  /// correspondant plutôt qu'à l'utilisateur qui l'a partagée. NULL si pas
+  /// extractable.
+  authorHandle: string | null;
 }
 
 /// Erreur classifiée d'un téléchargeur.

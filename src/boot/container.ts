@@ -32,6 +32,7 @@ import { ApproveInfluencerUsecase } from "../application/influencer/approve-infl
 import { EnrichRestaurantGoogleDataUsecase } from "../application/restaurant/enrich-google-data.usecase.ts";
 import { CookiesHealthMonitor } from "../application/monitoring/cookies-health.usecase.ts";
 import { SupabaseImportJobRepository } from "../infrastructure/repositories/supabase-import-job.repository.ts";
+import { SupabaseInfluencerResolver } from "../infrastructure/repositories/supabase-influencer-resolver.ts";
 import type { IRestaurantRepository } from "../domain/restaurant/restaurant.repository.ts";
 import type { IGuideRepository } from "../domain/guide/guide.repository.ts";
 import type { IUserRepository } from "../domain/user/user.repository.ts";
@@ -106,6 +107,8 @@ export function createContainer(): AppContainer {
     new HttpFallbackDownloader(),
   ]);
 
+  const influencerResolver = new SupabaseInfluencerResolver();
+
   const pipeline = new VideoImportPipeline(
     videoDownloader,
     transcription,
@@ -114,6 +117,7 @@ export function createContainer(): AppContainer {
     placesClient,
     enrichRestaurantGoogleDataInst,
     videoDedupRepo,
+    influencerResolver,
   );
 
   const pushProvider = new FcmPushAdapter();
