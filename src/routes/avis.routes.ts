@@ -29,7 +29,7 @@ export function registerAvisRoutes(router: Router, _container: AppContainer) {
       .maybeSingle();
 
     if (error) throw error;
-    if (!data) throw new NotFoundError("Avis not found");
+    if (!data) throw new NotFoundError("Avis", placeId);
 
     ctx.response.body = data;
   });
@@ -40,7 +40,7 @@ export function registerAvisRoutes(router: Router, _container: AppContainer) {
 
     const parsed = createAvisSchema.safeParse(body);
     if (!parsed.success) {
-      throw new ValidationError(parsed.error.message);
+      throw new ValidationError("Invalid avis params", parsed.error.issues);
     }
 
     const { placeId, note, texte } = parsed.data;
@@ -103,7 +103,7 @@ export function registerAvisRoutes(router: Router, _container: AppContainer) {
 
     const parsed = updateAvisSchema.safeParse(body);
     if (!parsed.success) {
-      throw new ValidationError(parsed.error.message);
+      throw new ValidationError("Invalid avis params", parsed.error.issues);
     }
 
     const { note, texte } = parsed.data;
@@ -116,7 +116,7 @@ export function registerAvisRoutes(router: Router, _container: AppContainer) {
       .maybeSingle();
 
     if (existingError) throw existingError;
-    if (!existing) throw new NotFoundError("Avis not found");
+    if (!existing) throw new NotFoundError("Avis", placeId);
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (note !== undefined) updates.note = note;
@@ -147,7 +147,7 @@ export function registerAvisRoutes(router: Router, _container: AppContainer) {
       .maybeSingle();
 
     if (existingError) throw existingError;
-    if (!existing) throw new NotFoundError("Avis not found");
+    if (!existing) throw new NotFoundError("Avis", placeId);
 
     const { error } = await supabaseService
       .from("avis_influencer")

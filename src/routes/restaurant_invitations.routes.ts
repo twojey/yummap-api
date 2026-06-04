@@ -68,18 +68,20 @@ export function registerRestaurantInvitationRoutes(
         .maybeSingle();
 
       if (error) throw error;
-      if (!data) throw new NotFoundError("Invitation not found");
+      if (!data) throw new NotFoundError("RestaurantInvitation", id);
 
+      // deno-lint-ignore no-explicit-any
+      const r = (data as any).restaurants as any;
       ctx.response.body = {
         id: data.id,
-        restaurantId: data.restaurants?.id ?? null,
-        restaurant: data.restaurants
+        restaurantId: r?.id ?? null,
+        restaurant: r
           ? {
-            id: data.restaurants.id,
-            placeId: data.restaurants.place_id,
-            name: data.restaurants.name,
-            address: data.restaurants.address,
-            googleRating: data.restaurants.google_rating,
+            id: r.id,
+            placeId: r.place_id,
+            name: r.name,
+            address: r.address,
+            googleRating: r.google_rating,
           }
           : null,
         token: data.token,
@@ -116,7 +118,7 @@ export function registerRestaurantInvitationRoutes(
         .maybeSingle();
 
       if (fetchError) throw fetchError;
-      if (!invitation) throw new NotFoundError("Invitation not found");
+      if (!invitation) throw new NotFoundError("RestaurantInvitation", id);
 
       if (invitation.status !== "pending") {
         ctx.response.status = 400;

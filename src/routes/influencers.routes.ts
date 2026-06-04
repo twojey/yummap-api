@@ -238,7 +238,7 @@ async function countByForeignKey(
   const counts = new Map<string, number>();
   if (ids.length === 0) return counts;
   const { data } = await supabaseService.from(table).select(column).in(column, ids);
-  for (const row of (data ?? []) as Array<Record<string, string>>) {
+  for (const row of (data ?? []) as unknown as Array<Record<string, string>>) {
     const key = row[column];
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }

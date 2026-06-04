@@ -57,7 +57,7 @@ export class CreateAdminInvitationUsecase {
         createdById: input.adminId,
         targetEmail: input.targetEmail,
         targetPhone: input.targetPhone,
-        linkedInfluencerId: influencerId,
+        linkedInfluencerId: influencerId ?? undefined,
         expiresAt,
       });
 

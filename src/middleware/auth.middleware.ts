@@ -2,12 +2,9 @@ import { type Context, type Next } from "../../deps.ts";
 import { supabaseAnon } from "../../config.ts";
 import { UnauthorizedError } from "../shared/errors.ts";
 
-declare module "https://deno.land/x/oak@v12.6.1/mod.ts" {
-  interface State {
-    userId: string;
-    role: string;
-  }
-}
+// Deno 2 + Oak v12 : le module augmentation `interface State` conflicte avec
+// le type alias `State` d'Oak. On type le state via un cast local à la place.
+export type AppState = { userId: string; role: string };
 
 export async function requireAuth(ctx: Context, next: Next) {
   const authHeader = ctx.request.headers.get("Authorization");

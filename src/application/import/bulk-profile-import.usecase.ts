@@ -172,6 +172,9 @@ export class BulkProfileImportUsecase {
       createdBy: input.createdBy,
       status: "pending",
       totalVideos: null,
+      lastProcessedIndex: 0,
+      pausedUntil: null,
+      pausedReason: null,
     });
 
     // Lancer le job en arrière-plan — ne pas await

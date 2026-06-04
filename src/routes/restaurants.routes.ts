@@ -38,7 +38,7 @@ export async function loadFeaturedRestaurantsForVideos(
     .in("video_id", videoIds)
     .order("position", { ascending: true });
   const result: Record<string, FeaturedRestaurant[]> = {};
-  for (const row of (data ?? []) as Array<{
+  for (const row of (data ?? []) as unknown as Array<{
     video_id: string;
     start_seconds: number | null;
     restaurants: { id: string; place_id: string; name: string };
