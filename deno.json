@@ -25,7 +25,7 @@
   "lint": {
     "rules": { "tags": ["recommended"] }
   },
-  "nodeModulesDir": "auto",
+  "nodeModulesDir": true,
   "tasks": {
     "start": "deno run --allow-net --allow-env --allow-read --allow-write --allow-run server.ts",
     "start:dev": "APP_ENV=development deno run --allow-net --allow-env --allow-read --allow-write --allow-run --watch server.ts",
