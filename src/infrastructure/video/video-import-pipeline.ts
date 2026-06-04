@@ -56,7 +56,7 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     if (effectiveExternalPostId && effectivePlatform) {
       const { data } = await supabaseService
         .from("videos")
-        .select("id, source_url, stored_path, stream_url, subtitles_url, transcription, created_at, video_restaurants(restaurant_id, position)")
+        .select("id, source_url, stored_path, stream_url, subtitles_url, transcription, created_at, video_restaurants(restaurant_id, position, restaurants(place_id))")
         .eq("uploader_id", uploaderId)
         .eq("platform", effectivePlatform)
         .eq("external_post_id", effectiveExternalPostId)
@@ -66,7 +66,7 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     if (!existing) {
       const { data } = await supabaseService
         .from("videos")
-        .select("id, source_url, stored_path, stream_url, subtitles_url, transcription, created_at, video_restaurants(restaurant_id, position)")
+        .select("id, source_url, stored_path, stream_url, subtitles_url, transcription, created_at, video_restaurants(restaurant_id, position, restaurants(place_id))")
         .eq("uploader_id", uploaderId)
         .eq("source_url", url)
         .maybeSingle();
@@ -76,7 +76,7 @@ export class VideoImportPipeline implements IVideoImportPipeline {
       console.log(`[Pipeline:${tag}] skip duplicate (already in DB)`);
       // Le "restaurantId" du résultat = resto en position 0 (principal). null
       // si la vidéo n'a aucun resto lié (= cas needs_review).
-      const links = (existing.video_restaurants as Array<{ restaurant_id: string; position: number }> | undefined) ?? [];
+      const links = (existing.video_restaurants as Array<{ restaurant_id: string; position: number; restaurants?: { place_id: string } | null }> | undefined) ?? [];
       const primary = links.find((l) => l.position === 0) ?? links[0];
       return {
         status: "complete",
@@ -84,6 +84,7 @@ export class VideoImportPipeline implements IVideoImportPipeline {
         video: {
           id: existing.id as string,
           restaurantId: primary?.restaurant_id ?? "",
+          restaurantPlaceId: primary?.restaurants?.place_id ?? null,
           uploaderId,
           sourceUrl: existing.source_url as string,
           storedPath: existing.stored_path as string,
@@ -207,7 +208,7 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     // 5. Upsert chaque resto résolu + enrichissement. On garde l'ordre original
     // de détection comme `position` côté video_restaurants (Sprint A : index 0
     // = principal, affiché par défaut dans feed/grilles).
-    const upsertedRestaurants: Array<{ id: string; startSeconds: number | null }> = [];
+    const upsertedRestaurants: Array<{ id: string; placeId: string; startSeconds: number | null }> = [];
     for (const r of resolved) {
       const restaurant = await this.restaurantRepo.upsert({
         id: crypto.randomUUID(),
@@ -246,11 +247,12 @@ export class VideoImportPipeline implements IVideoImportPipeline {
       }
       // Tous les restos featured rejoignent le guide par défaut de l'influenceur.
       await this.#addToDefaultGuide(uploaderId, restaurant.id);
-      upsertedRestaurants.push({ id: restaurant.id, startSeconds: r.detected.startSeconds ?? null });
+      upsertedRestaurants.push({ id: restaurant.id, placeId: r.place.placeId, startSeconds: r.detected.startSeconds ?? null });
     }
 
     // Le resto "principal" (position 0) pour les champs legacy du retour pipeline.
     const primaryRestaurantId = upsertedRestaurants[0].id;
+    const primaryRestaurantPlaceId = upsertedRestaurants[0].placeId;
     const restaurantIds = upsertedRestaurants.map((r) => r.id);
 
     // 5bis. Dédup cross-plateforme : la même vidéo a peut-être déjà été
@@ -322,6 +324,7 @@ export class VideoImportPipeline implements IVideoImportPipeline {
           video: {
             id: match.videoId,
             restaurantId: match.restaurantIds[0] ?? primaryRestaurantId,
+            restaurantPlaceId: primaryRestaurantPlaceId,
             uploaderId: match.originalUploaderId,
             sourceUrl: existingRow?.source_url ?? url,
             storedPath: existingRow?.stored_path ?? "",
@@ -419,6 +422,7 @@ export class VideoImportPipeline implements IVideoImportPipeline {
       video: {
         id: videoRow.id,
         restaurantId: primaryRestaurantId,
+        restaurantPlaceId: primaryRestaurantPlaceId,
         uploaderId,
         sourceUrl: url,
         storedPath: videoPath,

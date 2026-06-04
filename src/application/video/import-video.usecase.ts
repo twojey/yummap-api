@@ -50,8 +50,10 @@ export class ImportVideoUsecase {
 
       if (result.status === "complete") {
         await jobRepo.updateStatus(jobId, "complete", {
-          restaurantPlaceId: result.video.restaurantId,
-          restaurantName: undefined, // restaurantId suffit, le nom vient de la fiche
+          // place_id Google (pas l'UUID interne) : l'app navigue vers
+          // /restaurant/:placeId qui résout via GET /restaurants/:placeId.
+          restaurantPlaceId: result.video.restaurantPlaceId ?? undefined,
+          restaurantName: undefined,
         });
         await this.notifications.dispatch({
           type: "ImportComplete",

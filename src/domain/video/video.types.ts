@@ -1,6 +1,7 @@
 export interface Video {
   id: string;
-  restaurantId: string;
+  restaurantId: string;            // UUID interne du restaurant principal
+  restaurantPlaceId: string | null; // place_id Google du restaurant principal
   uploaderId: string; // user UUID
   sourceUrl: string; // URL TikTok/Instagram originale
   storedPath: string; // chemin sur le serveur perso
