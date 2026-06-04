@@ -176,12 +176,37 @@ export function registerCreatorRoutes(router: Router, container: AppContainer) {
     ctx.response.body = { restaurantIds };
   });
 
+  // Supprime une vidéo appartenant au user courant
+  // DELETE /creator/videos/:id
+  router.delete("/creator/videos/:id", guestOrAuth, async (ctx) => {
+    const videoId = ctx.params.id;
+    const userId = ctx.state.userId;
+
+    // Vérifie que la vidéo appartient au user avant de supprimer
+    const { data: video } = await supabaseService
+      .from("videos")
+      .select("id")
+      .eq("id", videoId)
+      .eq("uploader_id", userId)
+      .single();
+    if (!video) throw new NotFoundError("Video", videoId);
+
+    await supabaseService.from("video_restaurants").delete().eq("video_id", videoId);
+    const { error } = await supabaseService
+      .from("videos")
+      .delete()
+      .eq("id", videoId)
+      .eq("uploader_id", userId);
+    if (error) throw new Error(error.message);
+    ctx.response.status = 204;
+  });
+
   // Stats rapides de l'influenceur
   // GET /creator/stats
   router.get("/creator/stats", guestOrAuth, async (ctx) => {
     const userId = ctx.state.userId;
 
-    const [videosRes, followersRes, guidesRes] = await Promise.all([
+    const [videosRes, followersRes, guidesRes, videoViewsRes, guideActivationsRes] = await Promise.all([
       supabaseService
         .from("videos")
         .select("id", { count: "exact", head: true })
@@ -194,12 +219,23 @@ export function registerCreatorRoutes(router: Router, container: AppContainer) {
         .from("guides")
         .select("id", { count: "exact", head: true })
         .eq("influencer_id", userId),
+      supabaseService
+        .from("analytics_events")
+        .select("id", { count: "exact", head: true })
+        .eq("event_type", "video_view")
+        .eq("metadata->>uploader_id", userId),
+      supabaseService
+        .from("guide_activations")
+        .select("id", { count: "exact", head: true })
+        .eq("guides.influencer_id", userId),
     ]);
 
     ctx.response.body = {
-      videoCount:    videosRes.count ?? 0,
-      followerCount: followersRes.count ?? 0,
-      guideCount:    guidesRes.count ?? 0,
+      videoCount:           videosRes.count ?? 0,
+      followerCount:        followersRes.count ?? 0,
+      guideCount:           guidesRes.count ?? 0,
+      videoViewCount:       videoViewsRes.count ?? 0,
+      guideActivationCount: guideActivationsRes.count ?? 0,
     };
   });
 
@@ -213,5 +249,94 @@ export function registerCreatorRoutes(router: Router, container: AppContainer) {
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     ctx.response.body = data ?? [];
+  });
+
+  // Toggle opt-in pour le matching pool
+  // PUT /influencer/optin   body: { optin: boolean }
+  router.put("/influencer/optin", guestOrAuth, async (ctx) => {
+    const body = await ctx.request.body({ type: "json" }).value;
+    const parsed = z.object({ optin: z.boolean() }).safeParse(body);
+    if (!parsed.success) throw new ValidationError("Invalid optin params", parsed.error.issues);
+
+    const { error } = await supabaseService
+      .from("pending_influencer_profiles")
+      .update({ optin_matching_pool: parsed.data.optin })
+      .eq("user_id", ctx.state.userId);
+    if (error) throw new Error(error.message);
+    ctx.response.body = { optin: parsed.data.optin };
+  });
+
+  // Supprime le compte influenceur (rétrograde le rôle sans supprimer le user)
+  // DELETE /influencer/account
+  router.delete("/influencer/account", guestOrAuth, async (ctx) => {
+    const userId = ctx.state.userId;
+
+    const { error: delErr } = await supabaseService
+      .from("pending_influencer_profiles")
+      .delete()
+      .eq("user_id", userId);
+    if (delErr) throw new Error(delErr.message);
+
+    const { error: roleErr } = await supabaseService
+      .from("users")
+      .update({ role: "user" })
+      .eq("id", userId);
+    if (roleErr) throw new Error(roleErr.message);
+
+    ctx.response.status = 204;
+  });
+
+  // Récupère le profil influenceur du user courant
+  // GET /influencer/profile
+  router.get("/influencer/profile", guestOrAuth, async (ctx) => {
+    const { data, error } = await supabaseService
+      .from("pending_influencer_profiles")
+      .select("display_name, avatar_url, bio, social_profiles, status, optin_matching_pool")
+      .eq("user_id", ctx.state.userId)
+      .single();
+    if (error) throw new Error(error.message);
+    if (!data) throw new NotFoundError("InfluencerProfile", ctx.state.userId);
+    ctx.response.body = {
+      displayName:       data.display_name,
+      avatarUrl:         data.avatar_url,
+      bio:               data.bio,
+      socialProfiles:    data.social_profiles,
+      status:            data.status,
+      optinMatchingPool: data.optin_matching_pool,
+    };
+  });
+
+  // Met à jour le profil influenceur
+  // PUT /influencer/profile   body: { displayName?, avatarUrl?, bio? }
+  router.put("/influencer/profile", guestOrAuth, async (ctx) => {
+    const body = await ctx.request.body({ type: "json" }).value;
+    const parsed = z.object({
+      displayName: z.string().min(1).optional(),
+      avatarUrl:   z.string().url().optional(),
+      bio:         z.string().optional(),
+    }).safeParse(body);
+    if (!parsed.success) throw new ValidationError("Invalid profile params", parsed.error.issues);
+
+    const updates: Record<string, unknown> = {};
+    if (parsed.data.displayName !== undefined) updates.display_name = parsed.data.displayName;
+    if (parsed.data.avatarUrl   !== undefined) updates.avatar_url   = parsed.data.avatarUrl;
+    if (parsed.data.bio         !== undefined) updates.bio          = parsed.data.bio;
+
+    const { data, error } = await supabaseService
+      .from("pending_influencer_profiles")
+      .update(updates)
+      .eq("user_id", ctx.state.userId)
+      .select("display_name, avatar_url, bio, social_profiles, status, optin_matching_pool")
+      .single();
+    if (error) throw new Error(error.message);
+    if (!data) throw new NotFoundError("InfluencerProfile", ctx.state.userId);
+    ctx.response.body = {
+      displayName:       data.display_name,
+      avatarUrl:         data.avatar_url,
+      bio:               data.bio,
+      socialProfiles:    data.social_profiles,
+      status:            data.status,
+      optinMatchingPool: data.optin_matching_pool,
+    };
   });
 }

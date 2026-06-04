@@ -15,6 +15,8 @@ import { registerCreatorRoutes } from "./src/routes/creator.routes.ts";
 import { registerInfluencerRoutes } from "./src/routes/influencers.routes.ts";
 import { registerTagRoutes } from "./src/routes/tags.routes.ts";
 import { registerSearchRoutes } from "./src/routes/search.routes.ts";
+import { registerRestaurantInvitationRoutes } from "./src/routes/restaurant_invitations.routes.ts";
+import { registerAvisRoutes } from "./src/routes/avis.routes.ts";
 
 const app = new Application();
 const router = new Router();
@@ -43,6 +45,8 @@ registerCreatorRoutes(router, container);
 registerInfluencerRoutes(router, container);
 registerTagRoutes(router);
 registerSearchRoutes(router);
+registerRestaurantInvitationRoutes(router, container);
+registerAvisRoutes(router, container);
 
 app.use(router.routes());
 app.use(router.allowedMethods());
