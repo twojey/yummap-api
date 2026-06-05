@@ -21,8 +21,7 @@ export interface IUserRepository {
   getFollowing(userId: string): Promise<string[]>; // influencer IDs
   follow(userId: string, influencerId: string): Promise<void>;
   unfollow(userId: string, influencerId: string): Promise<void>;
-  getWatchlist(userId: string): Promise<string[]>; // restaurant IDs
-  addToWatchlist(userId: string, restaurantId: string): Promise<void>;
-  removeFromWatchlist(userId: string, restaurantId: string): Promise<void>;
+  // NB : pas de méthodes watchlist — la watchlist est local-first côté app
+  // (SharedPreferences). Le serveur n'en a aucune notion.
   registerPushToken(userId: string, token: string, platform: "ios" | "android"): Promise<void>;
 }

@@ -5,11 +5,26 @@ import type { User } from "../../../src/domain/user/user.types.ts";
 class StubUserRepository implements IUserRepository {
   private users = new Map<string, User>();
   private following = new Map<string, Set<string>>();
-  private watchlists = new Map<string, Set<string>>();
 
   async findById(id: string): Promise<User | null> {
     return this.users.get(id) ?? null;
   }
+
+  async findByPhoneNumber(phoneNumber: string): Promise<User | null> {
+    return [...this.users.values()].find((u) => u.phoneNumber === phoneNumber) ?? null;
+  }
+
+  async createAnonymous(params: { id: string; displayName: string }): Promise<User> {
+    return this.upsert({ id: params.id, role: "user", displayName: params.displayName, phoneNumber: "" });
+  }
+
+  async heartbeat(_id: string): Promise<void> {}
+
+  async countActiveFollowers(_influencerId: string, _activeWindowDays: number): Promise<number> {
+    return 0;
+  }
+
+  async mergeInto(_fromId: string, _toId: string): Promise<void> {}
 
   async upsert(user: Pick<User, "id" | "role"> & { displayName: string; phoneNumber: string }): Promise<User> {
     const existing = this.users.get(user.id);
@@ -48,20 +63,6 @@ class StubUserRepository implements IUserRepository {
 
   async unfollow(userId: string, influencerId: string): Promise<void> {
     this.following.get(userId)?.delete(influencerId);
-  }
-
-  async getWatchlist(userId: string): Promise<string[]> {
-    return [...(this.watchlists.get(userId) ?? [])];
-  }
-
-  async addToWatchlist(userId: string, restaurantId: string): Promise<void> {
-    const set = this.watchlists.get(userId) ?? new Set();
-    set.add(restaurantId);
-    this.watchlists.set(userId, set);
-  }
-
-  async removeFromWatchlist(userId: string, restaurantId: string): Promise<void> {
-    this.watchlists.get(userId)?.delete(restaurantId);
   }
 
   async registerPushToken(_userId: string, _token: string, _platform: "ios" | "android"): Promise<void> {}
@@ -104,16 +105,5 @@ Deno.test("IUserRepository — unfollow retire l'influenceur", async () => {
   assertEquals(await repo.getFollowing("u1"), []);
 });
 
-Deno.test("IUserRepository — addToWatchlist / getWatchlist", async () => {
-  const repo = new StubUserRepository();
-  await repo.addToWatchlist("u1", "r1");
-  const watchlist = await repo.getWatchlist("u1");
-  assertEquals(watchlist.includes("r1"), true);
-});
-
-Deno.test("IUserRepository — removeFromWatchlist retire le restaurant", async () => {
-  const repo = new StubUserRepository();
-  await repo.addToWatchlist("u1", "r1");
-  await repo.removeFromWatchlist("u1", "r1");
-  assertEquals(await repo.getWatchlist("u1"), []);
-});
+// NB : pas de tests watchlist — la watchlist est local-first côté app
+// (SharedPreferences). Le serveur n'expose plus de méthodes watchlist.

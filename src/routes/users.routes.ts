@@ -93,25 +93,9 @@ export function registerUserRoutes(router: Router, container: AppContainer) {
     ctx.response.status = 204;
   });
 
-  router.post("/users/me/watchlist/:restaurantId", guestOrAuth, async (ctx) => {
-    await container.userRepo.addToWatchlist(ctx.state.userId, ctx.params.restaurantId);
-    analyticsService.track({
-      eventType: "watchlist_add",
-      userId: ctx.state.userId,
-      restaurantId: ctx.params.restaurantId,
-    });
-    ctx.response.status = 204;
-  });
-
-  router.delete("/users/me/watchlist/:restaurantId", guestOrAuth, async (ctx) => {
-    await container.userRepo.removeFromWatchlist(ctx.state.userId, ctx.params.restaurantId);
-    analyticsService.track({
-      eventType: "watchlist_remove",
-      userId: ctx.state.userId,
-      restaurantId: ctx.params.restaurantId,
-    });
-    ctx.response.status = 204;
-  });
+  // NB : pas de routes /users/me/watchlist — la watchlist est local-first
+  // (SharedPreferences côté app, indexée par placeId). Le serveur n'en a aucune
+  // notion. Voir IPhoneSyncService / map_providers côté app.
 
   router.post("/users/me/push-token", guestOrAuth, async (ctx) => {
     const body = await ctx.request.body({ type: "json" }).value;

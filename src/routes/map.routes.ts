@@ -14,7 +14,6 @@ const ViewportSchema = z.object({
   openNow: z.coerce.boolean().optional(),
   minRating: z.coerce.number().min(0).max(5).optional(),
   maxRating: z.coerce.number().min(0).max(5).optional(),
-  inWatchlistOnly: z.coerce.boolean().optional(),
 });
 
 export function registerMapRoutes(router: Router, container: AppContainer) {
@@ -23,10 +22,10 @@ export function registerMapRoutes(router: Router, container: AppContainer) {
     const parsed = ViewportSchema.safeParse(params);
     if (!parsed.success) throw new ValidationError("Invalid viewport params", parsed.error.issues);
 
-    const { swLng, swLat, neLng, neLat, guideIds, tagIds, openNow, minRating, maxRating, inWatchlistOnly } = parsed.data;
+    const { swLng, swLat, neLng, neLat, guideIds, tagIds, openNow, minRating, maxRating } = parsed.data;
     const pins = await container.mapQuery.getPins(
       { swLng, swLat, neLng, neLat },
-      { guideIds, tagIds, openNow, minRating, maxRating, inWatchlistOnly },
+      { guideIds, tagIds, openNow, minRating, maxRating },
       ctx.state.userId,
     );
 

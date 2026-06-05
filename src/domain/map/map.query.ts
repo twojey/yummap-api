@@ -11,9 +11,6 @@ export interface PinFilters {
   openNow?: boolean;
   minRating?: number;
   maxRating?: number;
-  // True : ne montrer que les restos déjà dans la watchlist de l'user.
-  // Ignoré si l'user est guest (pas d'userId).
-  inWatchlistOnly?: boolean;
 }
 
 export interface Pin {

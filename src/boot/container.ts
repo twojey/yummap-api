@@ -124,7 +124,7 @@ export function createContainer(): AppContainer {
   const telegram = new TelegramBotAdapter();
   const notifications = new NotificationDispatcher(pushProvider, telegram);
 
-  const importVideo = new ImportVideoUsecase(pipeline, notifications, userRepo);
+  const importVideo = new ImportVideoUsecase(pipeline, notifications);
   const createGuide = new CreateGuideUsecase(guideRepo, notifications);
   const onboarding = new OnboardingUsecase(userRepo);
   const bulkProfileImport = new BulkProfileImportUsecase(importJobRepo, pipeline, notifications);

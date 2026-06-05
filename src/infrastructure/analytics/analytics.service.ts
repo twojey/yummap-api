@@ -6,8 +6,7 @@ export type AnalyticsEventType =
   | "restaurant_map_open"    // clic "ouvrir dans Maps"
   | "video_view"             // lecture d'une vidéo
   | "guide_view"             // consultation d'un Guide
-  | "watchlist_add"          // ajout à la Watchlist
-  | "watchlist_remove"
+  // NB : watchlist_add/remove retirés — watchlist local-first (pas de notion serveur)
   | "influencer_follow"
   | "influencer_unfollow"
   | "video_import"           // import d'une vidéo

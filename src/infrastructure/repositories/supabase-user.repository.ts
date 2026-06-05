@@ -144,26 +144,6 @@ export class SupabaseUserRepository implements IUserRepository {
     if (error) throw new Error(error.message);
   }
 
-  async getWatchlist(userId: string): Promise<string[]> {
-    const { data, error } = await supabaseService
-      .from("watchlist").select("restaurant_id").eq("user_id", userId);
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((r: { restaurant_id: string }) => r.restaurant_id);
-  }
-
-  async addToWatchlist(userId: string, restaurantId: string): Promise<void> {
-    const { error } = await supabaseService
-      .from("watchlist")
-      .upsert({ user_id: userId, restaurant_id: restaurantId }, { onConflict: "user_id,restaurant_id" });
-    if (error) throw new Error(error.message);
-  }
-
-  async removeFromWatchlist(userId: string, restaurantId: string): Promise<void> {
-    const { error } = await supabaseService
-      .from("watchlist").delete().eq("user_id", userId).eq("restaurant_id", restaurantId);
-    if (error) throw new Error(error.message);
-  }
-
   async registerPushToken(userId: string, token: string, platform: "ios" | "android"): Promise<void> {
     const { error } = await supabaseService
       .from("notification_preferences")
