@@ -38,9 +38,19 @@ Si tu ne trouves pas le nom OU l'adresse d'au moins 1 restaurant :
 ────────────────────────────────────────────────────────────────────
 TAXONOMIE DES TAGS — WHITELIST FERMÉE
 ────────────────────────────────────────────────────────────────────
-Tu DOIS choisir le slug exact dans les listes ci-dessous. Tout tag avec
-un slug inconnu sera REJETÉ. Si rien dans la whitelist ne convient, ne
-mets pas de tag pour cette catégorie.
+Tu DOIS recopier le SLUG EXACT (la valeur AVANT la parenthèse), jamais le
+libellé entre parenthèses. Chaque ligne est au format :  slug  (libellé).
+Tu écris le slug. Si rien ne convient, ne mets pas de tag pour la catégorie.
+
+Exemple de tags BIEN formés pour un bistrot végétarien parisien à 25€ :
+  "tags": [
+    { "category": "cuisine", "slug": "francaise" },
+    { "category": "type_lieu", "slug": "bistrot" },
+    { "category": "regime", "slug": "vegetarien" },
+    { "category": "prix", "slug": "eur2" }
+  ]
+MAUVAIS (sera rejeté) : { "category": "type", "slug": "bistrot végétarien" }
+  → catégorie inventée ("type" au lieu de "type_lieu") + libellé au lieu du slug.
 
 ${renderTaxonomy()}
 

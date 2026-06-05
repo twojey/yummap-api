@@ -1,5 +1,5 @@
 import type { IVideoImportPipeline, ImportResult, ITranscriptionService, IRestaurantDetector } from "../../domain/video/video.pipeline.ts";
-import { isValidTag } from "../../domain/tags/tag-taxonomy.ts";
+import { resolveTags, type ResolvedTag } from "../../domain/tags/tag-taxonomy.ts";
 import type { IRestaurantRepository } from "../../domain/restaurant/restaurant.repository.ts";
 import type { IVideoDedupRepository } from "../../domain/video/video-dedup.repository.ts";
 import {
@@ -226,12 +226,16 @@ export class VideoImportPipeline implements IVideoImportPipeline {
       });
     }
 
+    // Résout les tags bruts LLM en tags canoniques une seule fois (tolérant aux
+    // erreurs de format : name au lieu de slug, mauvaise catégorie, alias…).
+    // Réutilisé pour le check cuisine ET la liaison DB → cohérence garantie.
+    const resolvedTags = resolveTags(detection.tags ?? []);
+    console.log(`[Pipeline:${tag}] tags=${resolvedTags.map((t) => `${t.category}/${t.slug}`).join(",") || "∅"}`);
+
     // Cuisine obligatoire : si l'IA n'a pas pu déterminer la cuisine, on traite
     // comme incomplete (review manuel) plutôt que de créer des restos sans cuisine.
     // Les autres catégories sont optionnelles.
-    const hasCuisine = (detection.tags ?? []).some(
-      (t) => t.category?.trim().toLowerCase() === "cuisine" && t.slug?.trim(),
-    );
+    const hasCuisine = resolvedTags.some((t) => t.category === "cuisine");
     if (!hasCuisine) {
       console.log(`[Pipeline:${tag}] no cuisine tag → incomplete (needs review)`);
       const first = detection.restaurants[0];
@@ -318,8 +322,8 @@ export class VideoImportPipeline implements IVideoImportPipeline {
         );
       }
 
-      if (detection.tags && detection.tags.length > 0) {
-        await this.#linkTags(restaurant.id, detection.tags);
+      if (resolvedTags.length > 0) {
+        await this.#linkTags(restaurant.id, resolvedTags);
       }
       if (r.place.photoReference) {
         await this.#ensureRestaurantPhoto(restaurant.id, r.place.placeId, r.place.photoReference);
@@ -649,35 +653,12 @@ export class VideoImportPipeline implements IVideoImportPipeline {
 
   async #linkTags(
     restaurantId: string,
-    tags: Array<{ category: string; slug: string }>,
+    normalized: ReadonlyArray<ResolvedTag>,
   ): Promise<void> {
-    // Validation stricte contre la taxonomie. Tout tag avec un (category, slug)
-    // hors whitelist est silencieusement rejeté — on ne pollue plus la base
-    // avec des hallucinations LLM (cf. migration 0020 qui a nettoyé l'historique).
-    const seen = new Set<string>();
-    const normalized = tags
-      .map((t) => ({
-        category: t.category?.trim().toLowerCase() ?? "",
-        slug: t.slug?.trim().toLowerCase() ?? "",
-      }))
-      .filter((t) => t.category && t.slug)
-      .filter((t) => {
-        if (!isValidTag(t.category, t.slug)) {
-          console.warn(`[Pipeline] reject tag hors whitelist: ${t.category}/${t.slug}`);
-          return false;
-        }
-        return true;
-      })
-      .filter((t) => {
-        const key = `${t.category}::${t.slug}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+    // Les tags arrivent déjà canoniques et dédupliqués (resolveTags en amont).
+    // Tous existent en base (seedés par la migration 0020). On résout
+    // (category_slug, tag_slug) → tag_id en 1 query.
     if (normalized.length === 0) return;
-
-    // Tous les tags canoniques existent déjà en base (seedés par la migration
-    // 0020). On résout (category_slug, tag_slug) → tag_id en 1 query.
     const categorySlugs = [...new Set(normalized.map((t) => t.category))];
     const tagSlugs = [...new Set(normalized.map((t) => t.slug))];
     const { data: rows, error: tagsErr } = await supabaseService

@@ -177,3 +177,118 @@ export function isValidTag(category: string, slug: string): boolean {
   if (!CATEGORY_SLUGS.has(category as CategorySlug)) return false;
   return ALLOWED_TAG_SLUGS_BY_CATEGORY.get(category as CategorySlug)!.has(slug);
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Résolution tolérante des tags renvoyés par le LLM
+// ────────────────────────────────────────────────────────────────────
+// Les petits modèles (gemini-flash-lite, llama, gpt-nano) respectent mal le
+// format strict demandé : ils renvoient le label lisible ("végétarien") au
+// lieu du slug ("vegetarien"), une catégorie approximative ("type" au lieu de
+// "type_lieu", "diet" au lieu de "regime"), ou rangent un tag dans la mauvaise
+// catégorie. La validation stricte rejetait tout ça → restaurants sans tags.
+// resolveTag() récupère l'intention en matchant slug OU name OU alias, et en
+// déduisant la bonne catégorie depuis la valeur (tous les slugs/names sont
+// uniques à travers la taxonomie, donc pas d'ambiguïté).
+
+export interface ResolvedTag {
+  category: CategorySlug;
+  slug: string;
+}
+
+// Minuscules, accents retirés, non-alphanumériques → underscore.
+// "options végé" → "options_vege", "Bar à Vin" → "bar_a_vin", "thaï" → "thai".
+function normalizeToken(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+// Index global token-normalisé → tag canonique. Couvre slugs ET names.
+const TAG_BY_TOKEN: ReadonlyMap<string, ResolvedTag> = (() => {
+  const m = new Map<string, ResolvedTag>();
+  for (const cat of TAXONOMY) {
+    for (const tag of cat.tags) {
+      const entry: ResolvedTag = { category: cat.slug, slug: tag.slug };
+      const slugTok = normalizeToken(tag.slug);
+      const nameTok = normalizeToken(tag.name);
+      if (slugTok) m.set(slugTok, entry);
+      // name peut se normaliser à vide (ex: prix "€") → ignoré, géré à part.
+      if (nameTok && !m.has(nameTok)) m.set(nameTok, entry);
+    }
+  }
+  return m;
+})();
+
+// Alias fréquents produits par les LLM (anglais, synonymes), mappés vers un
+// token déjà présent dans TAG_BY_TOKEN.
+const TAG_ALIASES: Readonly<Record<string, string>> = {
+  // cuisine — anglais courant
+  japanese: "japonaise", italian: "italienne", french: "francaise",
+  chinese: "chinoise", korean: "coreenne", vietnamese: "vietnamienne",
+  indian: "indienne", lebanese: "libanaise", mediterranean: "mediterraneenne",
+  mexican: "mexicaine", peruvian: "peruvienne", african: "africaine",
+  american: "americaine", spanish: "espagnole", brazilian: "bresilienne",
+  sushi: "japonaise",
+  // regime — anglais / synonymes
+  vegetarian: "vegetarien", veggie: "options_vege", vegan_friendly: "options_vege",
+  gluten_free: "sans_gluten", lactose_free: "sans_lactose", organic: "bio",
+  kosher: "casher",
+  // type de lieu — anglais
+  bakery: "boulangerie", pastry: "patisserie", wine_bar: "bar_a_vin",
+  cocktail_bar: "bar_a_cocktails", coffee_shop: "cafe", ice_cream: "glacier",
+};
+
+// Résout une paire (catégorie-hint, valeur-hint) — potentiellement
+// approximative — vers un tag canonique. Tolère : slug, name, alias, mauvaise
+// catégorie, et symboles de prix (€, €€…). Retourne null si rien ne matche.
+// La catégorie-hint est ignorée volontairement : la valeur suffit à déterminer
+// la catégorie sans ambiguïté, et le LLM se trompe souvent de catégorie.
+export function resolveTag(
+  _categoryHint: string | null | undefined,
+  valueHint: string | null | undefined,
+): ResolvedTag | null {
+  const raw = (valueHint ?? "").trim();
+  if (!raw) return null;
+
+  // Prix : compter les € (le name canonique "€€" se normalise à vide).
+  const euroCount = (raw.match(/€/g) ?? []).length;
+  if (euroCount >= 1 && euroCount <= 4) {
+    return { category: "prix", slug: `eur${euroCount}` };
+  }
+
+  const tok = normalizeToken(raw);
+  if (!tok) return null;
+
+  const direct = TAG_BY_TOKEN.get(tok);
+  if (direct) return direct;
+
+  const aliasTok = TAG_ALIASES[tok];
+  if (aliasTok) {
+    const viaAlias = TAG_BY_TOKEN.get(normalizeToken(aliasTok));
+    if (viaAlias) return viaAlias;
+  }
+
+  return null;
+}
+
+// Résout une liste de tags bruts LLM en tags canoniques dédupliqués.
+// Accepte les variantes de clés observées (slug / name / value).
+export function resolveTags(
+  rawTags: ReadonlyArray<{ category?: string; slug?: string; name?: string; value?: string }>,
+): ResolvedTag[] {
+  const seen = new Set<string>();
+  const out: ResolvedTag[] = [];
+  for (const t of rawTags) {
+    const valueHint = t.slug ?? t.name ?? t.value ?? "";
+    const resolved = resolveTag(t.category, valueHint);
+    if (!resolved) continue;
+    const key = `${resolved.category}::${resolved.slug}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(resolved);
+  }
+  return out;
+}

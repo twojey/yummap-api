@@ -26,13 +26,15 @@ export interface IRestaurantDetector {
   }): Promise<DetectionResult>;
 }
 
-// Le détecteur renvoie des paires (category_slug, tag_slug). La validation
-// stricte contre la whitelist se fait dans le pipeline via isValidTag (voir
-// domain/tags/tag-taxonomy.ts). Tout tag hors taxonomie est silencieusement
-// rejeté — on ne pollue plus la base avec des hallucinations LLM.
+// Tag brut renvoyé par le LLM. Tous les champs sont optionnels car les petits
+// modèles respectent mal le format : ils mettent parfois le label dans "name"
+// au lieu du slug, ou omettent la catégorie. resolveTags() (tag-taxonomy.ts)
+// récupère l'intention et produit des paires (category, slug) canoniques.
 export interface DetectedTag {
-  category: string; // slug de catégorie (cuisine, type_lieu, regime, …)
-  slug: string;     // slug de tag canonique (francaise, italienne, vegan, …)
+  category?: string; // slug de catégorie attendu (cuisine, type_lieu, regime, …)
+  slug?: string;     // slug de tag canonique (francaise, vegan, …)
+  name?: string;     // label lisible — le LLM le met parfois ici au lieu du slug
+  value?: string;    // variante de clé observée
 }
 
 // Un resto détecté dans la vidéo. startSeconds = timestamp où l'IA pense que
