@@ -55,10 +55,7 @@ export class CookiesHealthMonitor {
 
     // --- 1. Cookies Instagram --------------------------------------------
     if (failures.length >= this.opts.minFailuresForCookies) {
-      const authLike = failures.filter((r) => {
-        const msg = (r.error_message ?? "").toLowerCase();
-        return msg.includes("auth") || msg.includes("not_found");
-      }).length;
+      const authLike = failures.filter((r) => isCookieAuthSignature(r.error_message)).length;
       const ratio = authLike / failures.length;
       if (ratio >= this.opts.authFailureRatio) {
         console.log(
@@ -69,10 +66,7 @@ export class CookiesHealthMonitor {
         // un faux positif (ex: tests, URLs mortes).
         const errorSample = mostCommonPrefix(
           failures
-            .filter((r) => {
-              const m = (r.error_message ?? "").toLowerCase();
-              return m.includes("auth") || m.includes("not_found");
-            })
+            .filter((r) => isCookieAuthSignature(r.error_message))
             .map((f) => f.error_message ?? "(no message)"),
         );
         await this.notifications.dispatch({
@@ -117,6 +111,26 @@ export class CookiesHealthMonitor {
     const elapsedMs = Date.now() - this.#lastAlertAt.getTime();
     return elapsedMs < this.opts.cooldownHours * 3600_000;
   }
+}
+
+/// Détecte une signature d'expiration cookies / login requis dans un message
+/// d'erreur de downloader. On exige un vrai signal d'auth (login, 403,
+/// challenge, checkpoint…). Le `not_found` ne compte QUE s'il vient de
+/// yt-dlp/gallery-dl (Instagram déguise parfois une page login en 404) — PAS
+/// du http-fallback, dont le `not_found` est générique (dernier recours qui
+/// ne trouve pas la vidéo) et provoquait des fausses alertes cookies.
+function isCookieAuthSignature(errorMessage: string | null): boolean {
+  const msg = (errorMessage ?? "").toLowerCase();
+  if (!msg) return false;
+  const authSignals = [
+    "auth", "login", "403", "challenge", "checkpoint",
+    "not logged", "session", "rate-limit reached",
+  ];
+  if (authSignals.some((s) => msg.includes(s))) return true;
+  // not_found "upstream" (yt-dlp/gallery-dl) = potentielle page login déguisée.
+  const isUpstreamNotFound = msg.includes("not_found") &&
+    (msg.includes("[yt-dlp]") || msg.includes("[gallery-dl]"));
+  return isUpstreamNotFound;
 }
 
 /// Renvoie le prefixe le plus frequent (premiers 80 chars) des messages
