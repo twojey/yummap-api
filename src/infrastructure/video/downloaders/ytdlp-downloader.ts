@@ -72,9 +72,11 @@ export class YtDlpDownloader implements IVideoDownloader {
       // (Supabase storage, lecteur video Flutter) attend du mp4.
       "--remux-video", "mp4",
       "--no-playlist",
-      // timestamp + handle auteur séparés par une tabulation, sur une ligne.
-      // uploader_id = le @handle du compte (sans @) sur IG comme TikTok.
-      "--print", "%(timestamp)s\t%(uploader_id)s",
+      // timestamp + plusieurs champs candidats pour le @handle, séparés par
+      // des tabulations. Sur Instagram, uploader_id est l'ID NUMÉRIQUE — le
+      // handle textuel est dans channel/uploader. On essaie chaque champ et on
+      // garde le premier non-numérique (voir pickHandle ci-dessous).
+      "--print", "%(timestamp)s\t%(channel)s\t%(uploader)s\t%(uploader_id)s",
       "--no-simulate",
       "--quiet",
     ];
@@ -107,9 +109,11 @@ export class YtDlpDownloader implements IVideoDownloader {
     }
 
     const printed = new TextDecoder().decode(stdout);
-    const [tsField, handleField] = printed.split("\n")[0]?.split("\t") ?? [];
+    const [tsField, ...handleFields] = printed.split("\n")[0]?.split("\t") ?? [];
     const postedAt = parseYtDlpTimestamp(tsField ?? "");
-    const authorHandle = normalizeHandle(handleField);
+    // channel > uploader > uploader_id : on garde le premier qui donne un
+    // handle textuel valide (normalizeHandle rejette les IDs numériques).
+    const authorHandle = handleFields.map(normalizeHandle).find((h) => h !== null) ?? null;
     return { videoPath, audioPath, postedAt, externalPostId, platform, authorHandle, caption: null };
   }
 
@@ -137,6 +141,10 @@ export function normalizeHandle(raw: string | undefined | null): string | null {
   if (!raw) return null;
   const cleaned = raw.trim().replace(/^@/, "");
   if (!cleaned || cleaned.toUpperCase() === "NA" || cleaned === "None") return null;
+  // Rejette les IDs purement numériques : sur Instagram, yt-dlp expose souvent
+  // l'owner_id numérique (ex: "48282483883") au lieu du @handle textuel. On ne
+  // veut pas créer un faux influenceur nommé d'après cet ID.
+  if (/^\d+$/.test(cleaned)) return null;
   return cleaned;
 }
 
