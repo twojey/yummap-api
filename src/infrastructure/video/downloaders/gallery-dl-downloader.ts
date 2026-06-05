@@ -42,9 +42,11 @@ export class GalleryDlDownloader implements IVideoDownloader {
       "-D", config.videoStorage.basePath,
       // Force le nom de fichier de sortie (sans extension, gallery-dl ajoute la sienne).
       "-o", `filename=${filename}`,
-      // JSON sur stdout — on s'en sert pour récupérer le timestamp.
+      // JSON sur stdout — on s'en sert pour récupérer le timestamp et la caption.
       "--write-info-json",
-      "--no-postprocessors",
+      // NOTE: --no-postprocessors retiré intentionnellement. Instagram sert parfois
+      // audio et vidéo dans des streams séparés ; gallery-dl les fusionne via un
+      // postprocessor ffmpeg. Sans ce flag, on obtenait un MP4 audio-only (écran noir).
       "-q",
     ];
     if (cookiesPath) args.push("--cookies", cookiesPath);
@@ -82,13 +84,19 @@ export class GalleryDlDownloader implements IVideoDownloader {
       await Deno.rename(produced, targetVideoPath);
     }
 
+    // Vérifie que le fichier téléchargé contient bien une piste vidéo.
+    // gallery-dl peut produire un MP4 audio-only si Instagram sert les streams
+    // séparément et qu'un postprocessor échoue.
+    await assertHasVideoTrack(targetVideoPath, audioPath, this.name);
+
     // Audio extraction via ffmpeg (gallery-dl ne le fait pas).
     await extractAudio(targetVideoPath, audioPath, this.name);
 
-    // Timestamp et handle auteur depuis le JSON sidecar.
+    // Timestamp, handle auteur et caption depuis le JSON sidecar.
     const jsonPath = `${config.videoStorage.basePath}/${filename}.json`;
     const postedAt = await readPostedAtFromJson(jsonPath);
     const authorHandle = await readAuthorHandleFromJson(jsonPath);
+    const caption = await readCaptionFromJson(jsonPath);
 
     return {
       videoPath: targetVideoPath,
@@ -97,6 +105,7 @@ export class GalleryDlDownloader implements IVideoDownloader {
       externalPostId: extractExternalPostId(url),
       platform: "instagram",
       authorHandle,
+      caption,
     };
   }
 }
@@ -146,21 +155,63 @@ async function readPostedAtFromJson(path: string): Promise<Date | null> {
 }
 
 /// Extrait le handle Instagram de l'auteur depuis le JSON sidecar gallery-dl.
-/// gallery-dl expose le handle via le champ "username" (handle du compte auteur)
-/// ou "owner.username" selon la version de l'extractor.
+/// gallery-dl expose le handle via "username" ou "owner.username".
+/// On rejette les valeurs purement numériques (user_id Instagram) — un handle
+/// Instagram valide contient toujours au moins une lettre ou un underscore.
 async function readAuthorHandleFromJson(path: string): Promise<string | null> {
   try {
     const txt = await Deno.readTextFile(path);
     const j = JSON.parse(txt) as Record<string, unknown>;
-    const username =
-      j["username"] ??
-      (j["owner"] as Record<string, unknown> | null)?.["username"] ??
-      j["uploader"];
-    if (typeof username === "string" && username.trim()) {
-      return username.trim().replace(/^@/, "");
+    const candidates = [
+      j["username"],
+      (j["owner"] as Record<string, unknown> | null)?.["username"],
+      j["uploader"],
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate !== "string") continue;
+      const cleaned = candidate.trim().replace(/^@/, "");
+      // Rejette les IDs numériques purs (ex: "48282483883") — ce sont des
+      // user_id Instagram, pas des handles textuels.
+      if (cleaned && !/^\d+$/.test(cleaned)) return cleaned;
     }
   } catch (_) { /* JSON absent ou cassé */ }
   return null;
+}
+
+/// Extrait la légende/description du post depuis le JSON sidecar gallery-dl.
+/// Instagram expose la caption dans "description" ou "content".
+async function readCaptionFromJson(path: string): Promise<string | null> {
+  try {
+    const txt = await Deno.readTextFile(path);
+    const j = JSON.parse(txt) as Record<string, unknown>;
+    for (const key of ["description", "content", "caption"]) {
+      const v = j[key];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+  } catch (_) { /* JSON absent */ }
+  return null;
+}
+
+/// Vérifie via ffprobe que le fichier contient une piste vidéo.
+/// Nettoie les fichiers temporaires et lève download_failed si audio-only.
+async function assertHasVideoTrack(videoPath: string, audioPath: string, adapter: string): Promise<void> {
+  const probe = new Deno.Command("ffprobe", {
+    args: ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type",
+           "-of", "default=noprint_wrappers=1", videoPath],
+    stdout: "piped",
+    stderr: "piped",
+  });
+  const { stdout } = await probe.output();
+  const out = new TextDecoder().decode(stdout).trim();
+  if (!out.includes("codec_type=video")) {
+    await Deno.remove(videoPath).catch(() => {});
+    await Deno.remove(audioPath).catch(() => {});
+    throw new DownloaderError(
+      "download_failed",
+      adapter,
+      "downloaded file has no video track (audio-only stream — Instagram may have served separate streams that failed to merge)",
+    );
+  }
 }
 
 export function classifyGalleryDlError(stderr: string): import("../../../domain/video/video-downloader.ts").DownloaderErrorKind {

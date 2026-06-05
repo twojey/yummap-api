@@ -198,8 +198,15 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     const { text: transcription, vttPath } = await this.transcription.transcribe(audioPath);
     console.log(`[Pipeline:${tag}] transcription="${transcription.slice(0, 150).replace(/\n/g, " ")}"`);
 
-    // 3. Détecter le restaurant via LLM
-    const detection = await this.detector.detect({ description, transcription });
+    // 3. Détecter le restaurant via LLM.
+    // La caption Instagram (légende du post) est ajoutée à la description : elle
+    // contient souvent le nom et l'adresse du restaurant, surtout quand la vidéo
+    // est peu parlée. L'app envoie description="" (elle n'a pas accès à la caption),
+    // donc ce fallback est critique.
+    const captionText = download.caption ?? "";
+    const effectiveDescription = [description, captionText].filter(Boolean).join("\n\n").trim();
+    const detection = await this.detector.detect({ description: effectiveDescription, transcription });
+    if (captionText) console.log(`[Pipeline:${tag}] caption="${captionText.slice(0, 150).replace(/\n/g, " ")}"`);
     console.log(`[Pipeline:${tag}] gemini=${JSON.stringify(detection).slice(0, 300)}`);
 
     if (detection.status === "incomplete") {

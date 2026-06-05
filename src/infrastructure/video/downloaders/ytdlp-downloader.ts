@@ -49,7 +49,7 @@ export class YtDlpDownloader implements IVideoDownloader {
           err,
         );
       }
-      return { videoPath, audioPath, postedAt: null, externalPostId, platform, authorHandle: null };
+      return { videoPath, audioPath, postedAt: null, externalPostId, platform, authorHandle: null, caption: null };
     }
 
     // Chemin yt-dlp standard. Cookies passés uniquement si dispo (sans
@@ -110,7 +110,7 @@ export class YtDlpDownloader implements IVideoDownloader {
     const [tsField, handleField] = printed.split("\n")[0]?.split("\t") ?? [];
     const postedAt = parseYtDlpTimestamp(tsField ?? "");
     const authorHandle = normalizeHandle(handleField);
-    return { videoPath, audioPath, postedAt, externalPostId, platform, authorHandle };
+    return { videoPath, audioPath, postedAt, externalPostId, platform, authorHandle, caption: null };
   }
 
   async #extractAudio(videoPath: string, audioPath: string): Promise<void> {

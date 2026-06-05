@@ -89,7 +89,7 @@ export class HttpFallbackDownloader implements IVideoDownloader {
       postedAt: null,
       externalPostId: extractExternalPostId(url),
       platform: "instagram",
-      authorHandle: null,
+      authorHandle: null, caption: null,
     };
   }
 }

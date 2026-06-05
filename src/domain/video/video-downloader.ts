@@ -34,6 +34,10 @@ export interface DownloadResult {
   /// correspondant plutôt qu'à l'utilisateur qui l'a partagée. NULL si pas
   /// extractable.
   authorHandle: string | null;
+  /// Légende/description du post telle qu'écrite par l'auteur sur la plateforme.
+  /// Contient souvent le nom du restaurant et l'adresse. Passée au détecteur LLM
+  /// en complément de la transcription audio. NULL si pas extractable.
+  caption: string | null;
 }
 
 /// Erreur classifiée d'un téléchargeur.
