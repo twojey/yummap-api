@@ -81,12 +81,14 @@ export class YtDlpDownloader implements IVideoDownloader {
       "--quiet",
     ];
     if (cookiesPath) args.push("--cookies", cookiesPath);
-    // TikTok detecte les TLS fingerprints Python par defaut → "IP blocked".
-    // curl_cffi (installe dans le venv via Dockerfile) sait imiter Chrome.
-    // On le sollicite uniquement pour TikTok : Instagram marche sans (et
-    // les builds ou curl_cffi se charge mal feraient crasher yt-dlp si
-    // l'option etait globale).
-    if (platform === "tiktok") args.push("--impersonate", "chrome");
+    // TikTok ET Instagram bloquent les TLS fingerprints Python/serveur depuis
+    // une IP datacenter (HF/Railway) : "IP blocked", "CloseNotify", ou format
+    // vidéo dégradé en audio-only. curl_cffi (installé via Dockerfile) imite le
+    // fingerprint d'un vrai Chrome pour contourner. En local (IP résidentielle)
+    // Instagram tolère sans, mais sur serveur c'est nécessaire.
+    if (platform === "tiktok" || platform === "instagram") {
+      args.push("--impersonate", "chrome");
+    }
 
     let proc;
     try {
