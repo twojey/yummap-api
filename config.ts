@@ -61,6 +61,10 @@ export const config = {
     basePath: optional("VIDEO_STORAGE_PATH", "/tmp/yummap_videos"),
     baseUrl: optional("VIDEO_STORAGE_URL", "http://localhost:8000/videos"),
   },
+  // Proxy (résidentiel) pour le téléchargement Instagram/TikTok depuis une IP
+  // datacenter — Instagram bloque les IP serveur. Format attendu :
+  // http://user:pass@host:port. Vide = pas de proxy (dev local résidentiel).
+  proxyUrl: optional("PROXY_URL", ""),
   r2: {
     accountId: optional("R2_ACCOUNT_ID"),
     accessKeyId: optional("R2_ACCESS_KEY_ID"),

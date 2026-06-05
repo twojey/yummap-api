@@ -50,6 +50,8 @@ export class GalleryDlDownloader implements IVideoDownloader {
       "-q",
     ];
     if (cookiesPath) args.push("--cookies", cookiesPath);
+    // Proxy résidentiel : Instagram bloque les IP datacenter.
+    if (config.proxyUrl) args.push("--proxy", config.proxyUrl);
 
     let proc;
     try {
