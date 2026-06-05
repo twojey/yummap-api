@@ -14,6 +14,7 @@ import { supabaseService } from "../../../config.ts";
 import type { EnrichRestaurantGoogleDataUsecase } from "../../application/restaurant/enrich-google-data.usecase.ts";
 import type { IVideoDownloader } from "../../domain/video/video-downloader.ts";
 import { detectPlatform, extractExternalPostId } from "./url-parsing.ts";
+import { ensureH264 } from "./ensure-h264.ts";
 import { generateThumbnail } from "./video-thumbnail.ts";
 import {
   type InfluencerLookupPort,
@@ -123,6 +124,19 @@ export class VideoImportPipeline implements IVideoImportPipeline {
       await Deno.remove(videoPath).catch(() => {});
       await Deno.remove(audioPath).catch(() => {});
       throw new Error("not_a_video: shared content is not a video (image or carousel post)");
+    }
+
+    // Garantit le H.264 : Instagram sert parfois des reels en VP9 que les
+    // navigateurs lisent (le panel admin affiche l'image) mais que le
+    // video_player Flutter sur iOS (AVPlayer) ne décode pas → son sans image.
+    // ensureH264 ré-encode au besoin, sur place (no-op si déjà h264).
+    try {
+      const srcCodec = await ensureH264(videoPath);
+      if (srcCodec && srcCodec !== "h264") {
+        console.log(`[Pipeline:${tag}] transcodé ${srcCodec} → h264 (compat AVPlayer/ExoPlayer)`);
+      }
+    } catch (err) {
+      console.warn(`[Pipeline:${tag}] ensureH264 a échoué, upload du fichier original: ${(err as Error).message}`);
     }
     // Préserve le postedAt explicitement passé par le caller (bulk profile
     // import qui peut en avoir un plus fiable depuis le scraper de profil),

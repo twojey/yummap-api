@@ -71,6 +71,11 @@ export class YtDlpDownloader implements IVideoDownloader {
       // séparé ou du webm ; le pipeline + lecteur Flutter attendent du mp4).
       "--merge-output-format", "mp4",
       "--remux-video", "mp4",
+      // Préfère la variante H.264 (avc1) quand la plateforme en propose une :
+      // Instagram sert aussi du VP9, illisible par AVPlayer (iOS) → son sans
+      // image. -S trie sans filtrer : si seul du VP9 existe, on le prend quand
+      // même (le pipeline le ré-encode ensuite via ensureH264).
+      "-S", "vcodec:h264",
       "--no-playlist",
       // timestamp + plusieurs champs candidats pour le @handle, séparés par
       // des tabulations. Sur Instagram, uploader_id est l'ID NUMÉRIQUE — le

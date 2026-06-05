@@ -26,6 +26,7 @@ const okResult = (adapter: string): DownloadResult => ({
   externalPostId: "abc",
   platform: "instagram",
   authorHandle: null,
+  caption: null,
 });
 
 Deno.test("cascading: 1er adapter OK → on s'arrête là", async () => {
