@@ -34,14 +34,17 @@ WORKDIR /app
 # code change (les deps sont stables, le cache reste valide).
 COPY deno.json deno.lock ./
 
-# Preload toutes les deps Deno. Si server.ts importe quoi que ce soit, c'est
-# resolu maintenant et cache dans /deno-dir → boot rapide en prod.
+# Cache-bust : changer cette valeur force le rebuild de tout ce qui suit
+# (COPY du code + deno cache), contournant un cache d'image obstiné côté HF.
+ARG CACHE_BUST=2026-06-05-2
+RUN echo "build ${CACHE_BUST}"
+
 COPY . .
-RUN deno cache server.ts
 
 ENV DEPLOY_MODE=worker
 EXPOSE 8000
 
-# Railway injecte PORT au runtime. Notre server.ts lit config.port qui lit
-# Deno.env.get("PORT"), donc no-op cote code.
-CMD ["deno", "run", "--allow-net", "--allow-env", "--allow-read", "--allow-write", "--allow-run", "server.ts"]
+# --reload : deno ignore tout cache de transpilation et re-lit le code source à
+# chaque démarrage → garantit que le code à jour s'exécute (pas une version
+# figée par un cache de build). Les deps sont re-résolues au 1er boot.
+CMD ["deno", "run", "--reload", "--allow-net", "--allow-env", "--allow-read", "--allow-write", "--allow-run", "server.ts"]
