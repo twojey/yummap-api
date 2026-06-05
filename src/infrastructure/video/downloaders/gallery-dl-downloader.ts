@@ -85,10 +85,10 @@ export class GalleryDlDownloader implements IVideoDownloader {
     // Audio extraction via ffmpeg (gallery-dl ne le fait pas).
     await extractAudio(targetVideoPath, audioPath, this.name);
 
-    // Timestamp depuis le JSON sidecar.
-    const postedAt = await readPostedAtFromJson(
-      `${config.videoStorage.basePath}/${filename}.json`,
-    );
+    // Timestamp et handle auteur depuis le JSON sidecar.
+    const jsonPath = `${config.videoStorage.basePath}/${filename}.json`;
+    const postedAt = await readPostedAtFromJson(jsonPath);
+    const authorHandle = await readAuthorHandleFromJson(jsonPath);
 
     return {
       videoPath: targetVideoPath,
@@ -96,7 +96,7 @@ export class GalleryDlDownloader implements IVideoDownloader {
       postedAt,
       externalPostId: extractExternalPostId(url),
       platform: "instagram",
-      authorHandle: null,
+      authorHandle,
     };
   }
 }
@@ -140,6 +140,24 @@ async function readPostedAtFromJson(path: string): Promise<Date | null> {
         const d = new Date(c);
         if (!Number.isNaN(d.getTime())) return d;
       }
+    }
+  } catch (_) { /* JSON absent ou cassé */ }
+  return null;
+}
+
+/// Extrait le handle Instagram de l'auteur depuis le JSON sidecar gallery-dl.
+/// gallery-dl expose le handle via le champ "username" (handle du compte auteur)
+/// ou "owner.username" selon la version de l'extractor.
+async function readAuthorHandleFromJson(path: string): Promise<string | null> {
+  try {
+    const txt = await Deno.readTextFile(path);
+    const j = JSON.parse(txt) as Record<string, unknown>;
+    const username =
+      j["username"] ??
+      (j["owner"] as Record<string, unknown> | null)?.["username"] ??
+      j["uploader"];
+    if (typeof username === "string" && username.trim()) {
+      return username.trim().replace(/^@/, "");
     }
   } catch (_) { /* JSON absent ou cassé */ }
   return null;

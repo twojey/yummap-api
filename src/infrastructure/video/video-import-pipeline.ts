@@ -135,6 +135,7 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     // Guide Auto de l'influenceur. Si aucun handle / pas de resolver → on
     // garde le partageur. La réattribution est faite AVANT tout INSERT pour
     // que video.uploader_id, le Guide Auto et le storage pointent l'influenceur.
+    const originalUploaderId = uploaderId;
     if (this.influencerResolver && download.authorHandle) {
       const influencerId = await resolveInfluencerByHandle(
         download.authorHandle,
@@ -143,6 +144,53 @@ export class VideoImportPipeline implements IVideoImportPipeline {
       if (influencerId && influencerId !== uploaderId) {
         console.log(`[Pipeline:${tag}] attribution → influenceur @${download.authorHandle} (${influencerId.slice(0, 8)})`);
         uploaderId = influencerId;
+      }
+    }
+
+    // 1bis. Idempotence post-attribution : si la vidéo existe déjà sous le
+    // compte de l'influenceur résolu (ex: admin a déjà bulk-importé son profil
+    // avant que l'utilisateur partage), on évite le doublon. L'utilisateur
+    // partageur est enregistré comme contributor pour sa timeline "mes imports".
+    if (uploaderId !== originalUploaderId && effectiveExternalPostId && effectivePlatform) {
+      const { data: influencerExisting } = await supabaseService
+        .from("videos")
+        .select("id, source_url, stored_path, stream_url, subtitles_url, transcription, created_at, video_restaurants(restaurant_id, position, restaurants(place_id))")
+        .eq("uploader_id", uploaderId)
+        .eq("platform", effectivePlatform)
+        .eq("external_post_id", effectiveExternalPostId)
+        .maybeSingle();
+      if (influencerExisting) {
+        console.log(`[Pipeline:${tag}] skip duplicate (influencer already has video)`);
+        await Deno.remove(videoPath).catch(() => {});
+        await Deno.remove(audioPath).catch(() => {});
+        if (this.dedupRepo) {
+          await this.dedupRepo.addContributor({
+            videoId: influencerExisting.id as string,
+            userId: originalUploaderId,
+            sourceUrl: url,
+            platform: effectivePlatform,
+            externalPostId: effectiveExternalPostId,
+          });
+        }
+        const links = (influencerExisting.video_restaurants as unknown as Array<{ restaurant_id: string; position: number; restaurants?: { place_id: string } | null }>) ?? [];
+        const primary = links.find((l) => l.position === 0) ?? links[0];
+        return {
+          status: "complete",
+          skipped: true,
+          video: {
+            id: influencerExisting.id as string,
+            restaurantId: primary?.restaurant_id ?? "",
+            restaurantPlaceId: primary?.restaurants?.place_id ?? null,
+            uploaderId,
+            sourceUrl: influencerExisting.source_url as string,
+            storedPath: influencerExisting.stored_path as string,
+            streamUrl: influencerExisting.stream_url as string,
+            subtitlesUrl: influencerExisting.subtitles_url as string | null,
+            transcription: influencerExisting.transcription as string | null,
+            duration: null,
+            createdAt: influencerExisting.created_at as string,
+          },
+        };
       }
     }
 
