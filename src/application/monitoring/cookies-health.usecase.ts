@@ -64,10 +64,22 @@ export class CookiesHealthMonitor {
         console.log(
           `[Health] cookies alert: ${authLike}/${failures.length} failures look auth-related (${(ratio * 100).toFixed(0)}%)`,
         );
+        // Échantillon de l'erreur la plus fréquente (parmi les auth-like) pour
+        // que l'admin juge tout de suite si c'est une vraie alerte cookies ou
+        // un faux positif (ex: tests, URLs mortes).
+        const errorSample = mostCommonPrefix(
+          failures
+            .filter((r) => {
+              const m = (r.error_message ?? "").toLowerCase();
+              return m.includes("auth") || m.includes("not_found");
+            })
+            .map((f) => f.error_message ?? "(no message)"),
+        );
         await this.notifications.dispatch({
           type: "CookiesAuthAlert",
           failedCount: authLike,
           totalCount: failures.length,
+          errorSample,
         });
         this.#lastAlertAt = new Date();
         return;

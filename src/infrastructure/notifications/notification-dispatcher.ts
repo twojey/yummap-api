@@ -47,10 +47,18 @@ export class NotificationDispatcher implements INotificationDispatcher {
       case "CookiesAuthAlert": {
         // Route via Telegram bot (pas FCM) : c'est une alerte admin pour 1-2
         // destinataires fixes, l'app mobile n'a pas besoin d'etre installee.
+        // On joint un echantillon d'erreur pour que l'admin distingue tout de
+        // suite une vraie expiration cookies d'un faux positif (tests, URLs
+        // mortes...). Markdown escape sur le contenu user-provided.
+        const safeSample = event.errorSample
+          .replace(/`/g, "'")
+          .replace(/[_*]/g, "")
+          .slice(0, 200);
         await this.telegram.send(
-          `⚠️ *Cookies Instagram expirés*\n\n` +
-          `${event.failedCount}/${event.totalCount} imports en échec sur la dernière heure.\n\n` +
-          `Régénère les cookies depuis ton browser et push le nouveau secret \`INSTAGRAM_COOKIES_B64\` sur le worker. ` +
+          `⚠️ *Cookies Instagram — à vérifier*\n\n` +
+          `${event.failedCount}/${event.totalCount} imports en échec (signature auth) sur la dernière heure.\n\n` +
+          `Échantillon d'erreur :\n\`${safeSample}\`\n\n` +
+          `Si c'est bien une erreur d'auth/login → régénère les cookies et push le secret \`INSTAGRAM_COOKIES_B64\`. ` +
           `Procédure dans \`DEPLOY.md\` section "Cookies Instagram".`,
         );
         break;
