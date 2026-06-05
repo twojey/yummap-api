@@ -30,6 +30,20 @@ export class CascadingDownloader implements IVideoDownloader {
     for (const adapter of this.adapters) {
       try {
         const result = await adapter.download(url);
+        // Garde anti-"écran noir" : certains downloaders (yt-dlp sur un reel
+        // dont Instagram sert audio et vidéo en streams séparés) "réussissent"
+        // en ne produisant qu'un MP4 audio-only. On le détecte via ffprobe et
+        // on traite ça comme un échec → la cascade essaie l'adapter suivant
+        // (souvent gallery-dl récupère le MP4 progressif complet).
+        if (!(await hasVideoTrack(result.videoPath))) {
+          await Deno.remove(result.videoPath).catch(() => {});
+          await Deno.remove(result.audioPath).catch(() => {});
+          throw new DownloaderError(
+            "download_failed",
+            adapter.name,
+            "downloaded file has no video track (audio-only stream)",
+          );
+        }
         if (attemptCount > 0) {
           console.log(
             `[Cascade] ✓ ${adapter.name} succeeded after ${attemptCount} fallback(s)`,
@@ -67,6 +81,29 @@ export class CascadingDownloader implements IVideoDownloader {
       this.name,
       "no adapter could handle this URL",
     );
+  }
+}
+
+/// Vérifie via ffprobe que le fichier contient une piste vidéo. Si ffprobe est
+/// absent ou échoue, on renvoie `true` (on ne bloque pas un import à cause d'un
+/// outil manquant — mieux vaut tenter l'upload).
+async function hasVideoTrack(videoPath: string): Promise<boolean> {
+  try {
+    const probe = new Deno.Command("ffprobe", {
+      args: [
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=codec_type",
+        "-of", "default=noprint_wrappers=1",
+        videoPath,
+      ],
+      stdout: "piped",
+      stderr: "piped",
+    });
+    const { stdout } = await probe.output();
+    return new TextDecoder().decode(stdout).includes("codec_type=video");
+  } catch {
+    return true;
   }
 }
 
