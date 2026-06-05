@@ -55,21 +55,21 @@ export class YtDlpDownloader implements IVideoDownloader {
     // Chemin yt-dlp standard. Cookies passés uniquement si dispo (sans
     // cookies yt-dlp fait quand même les URLs publiques TikTok/YouTube/…).
     //
-    // --output utilise le template %(ext)s pour que yt-dlp produise deux
-    // fichiers separes : <uuid>.mp4 (video) + <uuid>.mp3 (audio post-extrait).
-    // Sans ca, --output qui contient deja une extension finit en .mp4.mp3.
-    // --keep-video empeche yt-dlp de supprimer le mp4 apres l'extraction.
+    // IMPORTANT : on NE PAS utilise --extract-audio ici. Sur un reel servi en
+    // DASH (streams vidéo + audio séparés), la combinaison
+    // --extract-audio + --keep-video + --remux-video produisait un .mp4
+    // AUDIO-ONLY (écran noir) : yt-dlp remuxait l'audio extrait au lieu de la
+    // vidéo mergée. À la place, yt-dlp merge proprement video+audio en mp4
+    // (--merge-output-format), puis on extrait l'audio en mp3 via ffmpeg
+    // (#extractAudio) APRÈS le download — comme le fait gallery-dl.
     const cookiesPath = await ensureInstagramCookies();
     const outputTemplate = `${config.videoStorage.basePath}/${filename}.%(ext)s`;
     const args = [
       url,
       "--output", outputTemplate,
-      "--extract-audio",
-      "--audio-format", "mp3",
-      "--audio-quality", "0",
-      "--keep-video",
-      // Force remux en mp4 : Instagram sert parfois du webm, et le pipeline
-      // (Supabase storage, lecteur video Flutter) attend du mp4.
+      // Merge bestvideo+bestaudio en un seul mp4 (Instagram sert souvent du DASH
+      // séparé ou du webm ; le pipeline + lecteur Flutter attendent du mp4).
+      "--merge-output-format", "mp4",
       "--remux-video", "mp4",
       "--no-playlist",
       // timestamp + plusieurs champs candidats pour le @handle, séparés par
@@ -114,6 +114,10 @@ export class YtDlpDownloader implements IVideoDownloader {
     // channel > uploader > uploader_id : on garde le premier qui donne un
     // handle textuel valide (normalizeHandle rejette les IDs numériques).
     const authorHandle = handleFields.map(normalizeHandle).find((h) => h !== null) ?? null;
+    // Extrait l'audio en mp3 depuis la vidéo mergée (pour Whisper). Fait APRÈS
+    // le download yt-dlp pour ne pas casser le merge video+audio (cf. commentaire
+    // sur --extract-audio plus haut).
+    await this.#extractAudio(videoPath, audioPath);
     return { videoPath, audioPath, postedAt, externalPostId, platform, authorHandle, caption: null };
   }
 
