@@ -50,19 +50,37 @@ Deno.test("parseDetectionJson: déduplique les restos en double", () => {
   }
 });
 
-Deno.test("parseDetectionJson: vire les entrées avec name ou address vides", () => {
+Deno.test("parseDetectionJson: vire les entrées sans name, garde celles sans address", () => {
   const raw = JSON.stringify({
     status: "complete",
     restaurants: [
       { name: "OK", address: "10 rue X" },
       { name: "", address: "Paris" },
-      { name: "?", address: "" },
+      { name: "Sans Adresse", address: "" },
     ],
   });
   const r = parseDetectionJson(raw);
+  assertEquals(r.status, "complete");
   if (r.status === "complete") {
-    assertEquals(r.restaurants.length, 1);
+    assertEquals(r.restaurants.length, 2);
     assertEquals(r.restaurants[0].name, "OK");
+    // address optionnelle : Google Places résout "nom + Paris" seul
+    // (cas TikTok : caption avec juste le @nom du resto).
+    assertEquals(r.restaurants[1].name, "Sans Adresse");
+    assertEquals(r.restaurants[1].address, "");
+  }
+});
+
+Deno.test("parseDetectionJson: name seul sans address du tout → complete", () => {
+  const raw = JSON.stringify({
+    status: "complete",
+    restaurants: [{ name: "PÂTISSERIE B&S" }],
+  });
+  const r = parseDetectionJson(raw);
+  assertEquals(r.status, "complete");
+  if (r.status === "complete") {
+    assertEquals(r.restaurants[0].name, "PÂTISSERIE B&S");
+    assertEquals(r.restaurants[0].address, "");
   }
 });
 

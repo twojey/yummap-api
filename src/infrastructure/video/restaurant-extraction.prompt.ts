@@ -21,19 +21,23 @@ Transcription audio : """${input.transcription}"""
 
 Réponds UNIQUEMENT en JSON valide, sans markdown. Deux formats possibles.
 
-Si tu identifies au moins 1 restaurant avec son nom ET son adresse/arrondissement :
+Si tu identifies au moins 1 restaurant par son NOM (l'adresse est un plus,
+PAS une condition — sur TikTok la légende donne souvent juste le nom) :
 {
   "status": "complete",
   "restaurants": [
-    { "name": "<nom>", "address": "<adresse>", "startSeconds": <int|null> }
+    { "name": "<nom>", "address": "<adresse ou '' si inconnue>", "startSeconds": <int|null> }
   ],
   "tags": [
     { "category": "<slug>", "slug": "<slug-du-tag>" }
   ]
 }
+Le nom peut venir d'une mention @ dans la légende (ex: "@PÂTISSERIE B&S"
+→ name: "PÂTISSERIE B&S"). Si tu as l'adresse ou l'arrondissement, mets-les
+dans "address" ; sinon mets "" — ne refuse PAS le restaurant pour autant.
 
-Si tu ne trouves pas le nom OU l'adresse d'au moins 1 restaurant :
-{ "status": "incomplete", "missing": ["name"|"address"] }
+Si tu ne trouves le nom d'AUCUN restaurant :
+{ "status": "incomplete", "missing": ["name"] }
 
 ────────────────────────────────────────────────────────────────────
 TAXONOMIE DES TAGS — WHITELIST FERMÉE

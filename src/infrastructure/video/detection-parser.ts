@@ -11,9 +11,10 @@ import type { DetectionResult, DetectedRestaurant } from "../../domain/video/vid
 //       { status: "complete", name, address, tags? }
 //     → on l'enveloppe dans restaurants: [...] pour uniformiser.
 //
-// Filtre les entrées sans name OU sans address (l'IA hallucine parfois des
-// placeholders comme name: "?" address: "Paris"). Si rien de valide ne reste,
-// renvoie incomplete.
+// Filtre les entrées sans name (l'IA hallucine parfois des placeholders
+// comme name: "?"). L'address est OPTIONNELLE ("" acceptée) : Google Places
+// résout très bien "nom + Paris" seul, et les captions TikTok donnent
+// rarement l'adresse. Si rien de valide ne reste, renvoie incomplete.
 export function parseDetectionJson(raw: string): DetectionResult {
   let json: Record<string, unknown>;
   try {
@@ -36,7 +37,7 @@ export function parseDetectionJson(raw: string): DetectionResult {
   let rawList: Array<Record<string, unknown>> = [];
   if (Array.isArray(json.restaurants)) {
     rawList = json.restaurants as Array<Record<string, unknown>>;
-  } else if (typeof json.name === "string" && typeof json.address === "string") {
+  } else if (typeof json.name === "string") {
     rawList = [{ name: json.name, address: json.address }];
   }
 
@@ -45,7 +46,7 @@ export function parseDetectionJson(raw: string): DetectionResult {
   for (const r of rawList) {
     const name = typeof r.name === "string" ? r.name.trim() : "";
     const address = typeof r.address === "string" ? r.address.trim() : "";
-    if (name.length === 0 || address.length === 0) continue;
+    if (name.length === 0) continue;
     // Dédup basique : nom + 3 premiers caractères de l'adresse. Évite "Le Bon
     // Coin / 12 rue X" et "le bon coin / 12 RUE X" dupliqués.
     const key = `${name.toLowerCase()}|${address.toLowerCase().slice(0, 3)}`;
@@ -56,7 +57,7 @@ export function parseDetectionJson(raw: string): DetectionResult {
   }
 
   if (restaurants.length === 0) {
-    return { status: "incomplete", missing: ["name", "address"] };
+    return { status: "incomplete", missing: ["name"] };
   }
 
   return {
