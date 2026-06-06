@@ -5,6 +5,7 @@ import {
   type IVideoDownloader,
 } from "../../../domain/video/video-downloader.ts";
 import { detectPlatform, extractExternalPostId } from "../url-parsing.ts";
+import { normalizeHandle } from "./ytdlp-downloader.ts";
 
 /// Telechargeur TikTok via l'API publique TikWm (https://tikwm.com).
 ///
@@ -68,9 +69,12 @@ export class TikWmDownloader implements IVideoDownloader {
       code?: number;
       msg?: string;
       data?: {
+        id?: string;
         play?: string;
         hdplay?: string;
         create_time?: number;
+        title?: string;
+        author?: { unique_id?: string; nickname?: string };
       };
     };
 
@@ -137,13 +141,23 @@ export class TikWmDownloader implements IVideoDownloader {
       ? new Date(payload.data.create_time * 1000)
       : null;
 
+    // Metadata TikWm : title = légende du post (souvent le nom/adresse du
+    // resto → critique pour la détection LLM), author.unique_id = @handle.
+    const caption = payload.data.title?.trim() || null;
+    const authorHandle = normalizeHandle(payload.data.author?.unique_id);
+
+    // externalPostId : sur un lien court vm.tiktok.com, extractExternalPostId
+    // renvoie null (l'ID n'est connu qu'après redirect). TikWm expose l'ID réel
+    // du post dans data.id → on le préfère pour que la dédup marche aussi sur
+    // les liens courts partagés depuis l'app.
     return {
       videoPath,
       audioPath,
       postedAt,
-      externalPostId: extractExternalPostId(url),
+      externalPostId: payload.data.id ?? extractExternalPostId(url),
       platform: "tiktok",
-      authorHandle: null, caption: null,
+      authorHandle,
+      caption,
     };
   }
 }

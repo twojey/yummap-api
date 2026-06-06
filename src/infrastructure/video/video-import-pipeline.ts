@@ -53,8 +53,10 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     // Tente d'extraire (platform, external_post_id) directement depuis l'URL
     // SANS télécharger. Permet d'utiliser ces infos dans l'idempotence step 0
     // ci-dessous quand la route /videos/import n'a pas pu les fournir.
-    const effectiveExternalPostId = externalPostId ?? extractExternalPostId(url);
-    const effectivePlatform = platform ?? detectPlatform(url);
+    // `let` : raffiné après download — sur un lien court (vm.tiktok.com) l'ID
+    // n'est connu qu'après résolution par le downloader (yt-dlp/TikWm).
+    let effectiveExternalPostId = externalPostId ?? extractExternalPostId(url);
+    let effectivePlatform = platform ?? detectPlatform(url);
 
     const tag = effectiveExternalPostId ?? url.split("/").pop()?.slice(0, 12) ?? "?";
 
@@ -111,6 +113,12 @@ export class VideoImportPipeline implements IVideoImportPipeline {
     // la plateforme les expose.
     const download = await this.downloader.download(url);
     const { videoPath, audioPath, postedAt: scrapedPostedAt } = download;
+
+    // Raffine (platform, external_post_id) avec ce que le downloader a résolu :
+    // indispensable pour les liens courts TikTok (vm.tiktok.com) où l'URL seule
+    // ne contient pas l'ID → dédup influenceur + INSERT avec le vrai ID.
+    effectiveExternalPostId = effectiveExternalPostId ?? download.externalPostId;
+    effectivePlatform = effectivePlatform ?? download.platform;
 
     // Fail-fast : si le contenu téléchargé n'est pas une vidéo (carrousel
     // photo IG, story image, post statique TikTok…), on s'arrête tout de

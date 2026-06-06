@@ -81,7 +81,11 @@ export class YtDlpDownloader implements IVideoDownloader {
       // des tabulations. Sur Instagram, uploader_id est l'ID NUMÉRIQUE — le
       // handle textuel est dans channel/uploader. On essaie chaque champ et on
       // garde le premier non-numérique (voir pickHandle ci-dessous).
-      "--print", "%(timestamp)s\t%(channel)s\t%(uploader)s\t%(uploader_id)s",
+      // id = ID réel du post résolu par yt-dlp (après redirect d'un lien court
+      // vm.tiktok.com, où extractExternalPostId(url) renvoie null) → dédup OK.
+      // description en DERNIER et JSON-encodée (%(...)j) : elle peut contenir
+      // tabs/newlines qui casseraient le parsing positionnel sinon.
+      "--print", "%(timestamp)s\t%(channel)s\t%(uploader)s\t%(uploader_id)s\t%(id)s\t%(description)j",
       "--no-simulate",
       "--quiet",
     ];
@@ -113,17 +117,26 @@ export class YtDlpDownloader implements IVideoDownloader {
       throw new DownloaderError(kind, this.name, msg.slice(0, 500));
     }
 
+    // Parsing positionnel du --print ci-dessus :
+    // [0]=timestamp [1]=channel [2]=uploader [3]=uploader_id [4]=id [5]=description(JSON)
+    // La description JSON-encodée ne contient ni tab ni newline bruts → split sûr.
     const printed = new TextDecoder().decode(stdout);
-    const [tsField, ...handleFields] = printed.split("\n")[0]?.split("\t") ?? [];
-    const postedAt = parseYtDlpTimestamp(tsField ?? "");
+    const fields = printed.split("\n")[0]?.split("\t") ?? [];
+    const postedAt = parseYtDlpTimestamp(fields[0] ?? "");
     // channel > uploader > uploader_id : on garde le premier qui donne un
     // handle textuel valide (normalizeHandle rejette les IDs numériques).
-    const authorHandle = handleFields.map(normalizeHandle).find((h) => h !== null) ?? null;
+    const authorHandle = fields.slice(1, 4).map(normalizeHandle).find((h) => h !== null) ?? null;
+    // ID réel du post (yt-dlp l'a après redirect) en fallback quand l'URL
+    // courte (vm.tiktok.com) ne permet pas de l'extraire → dédup fonctionnelle.
+    const printedId = fields[4]?.trim();
+    const resolvedPostId = externalPostId ??
+      (printedId && printedId.toUpperCase() !== "NA" && printedId !== "None" ? printedId : null);
+    const caption = parseJsonDescription(fields[5]);
     // Extrait l'audio en mp3 depuis la vidéo mergée (pour Whisper). Fait APRÈS
     // le download yt-dlp pour ne pas casser le merge video+audio (cf. commentaire
     // sur --extract-audio plus haut).
     await this.#extractAudio(videoPath, audioPath);
-    return { videoPath, audioPath, postedAt, externalPostId, platform, authorHandle, caption: null };
+    return { videoPath, audioPath, postedAt, externalPostId: resolvedPostId, platform, authorHandle, caption };
   }
 
   async #extractAudio(videoPath: string, audioPath: string): Promise<void> {
@@ -155,6 +168,22 @@ export function normalizeHandle(raw: string | undefined | null): string | null {
   // veut pas créer un faux influenceur nommé d'après cet ID.
   if (/^\d+$/.test(cleaned)) return null;
   return cleaned;
+}
+
+/// Décode le champ description imprimé par yt-dlp en `%(description)j`
+/// (JSON-encodé sur une seule ligne). Renvoie null si absent, vide ou "NA".
+/// Exporté pour test.
+export function parseJsonDescription(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const decoded = JSON.parse(raw);
+    if (typeof decoded !== "string") return null;
+    const trimmed = decoded.trim();
+    if (!trimmed || trimmed.toUpperCase() === "NA" || trimmed === "None") return null;
+    return trimmed;
+  } catch {
+    return null;
+  }
 }
 
 /// Heuristique sur la sortie stderr de yt-dlp pour classifier l'erreur.
