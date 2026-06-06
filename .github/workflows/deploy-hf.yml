@@ -1,0 +1,47 @@
+name: Deploy worker to Hugging Face Space
+
+# Synchronise le code vers le Space Docker HF (m-aurelion/yummap-worker) à
+# chaque push sur main. HF rebuild ensuite le Dockerfile automatiquement.
+# Le .env et les cookies sont gitignored → aucun secret n'est poussé ici ;
+# les variables d'env du worker sont configurées en "secrets" du Space.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync-to-hf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to HF Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # En-tête YAML requis par HF pour un Docker Space (port d'écoute 8000).
+          cat > README.md <<'HFEOF'
+          ---
+          title: Yummap Worker
+          emoji: 🍽️
+          colorFrom: orange
+          colorTo: red
+          sdk: docker
+          app_port: 8000
+          pinned: false
+          ---
+
+          Worker d'import vidéo Yummap (Deno + yt-dlp + gallery-dl + ffmpeg).
+          Déployé automatiquement depuis twojey/yummap-api via GitHub Actions.
+          HFEOF
+
+          git config user.email "ci@yummap.app"
+          git config user.name "Yummap CI"
+          git add README.md
+          git commit -m "ci: HF Space header" || true
+
+          # Force-push de l'état courant vers le Space (écrase son historique).
+          git push --force "https://m-aurelion:${HF_TOKEN}@huggingface.co/spaces/m-aurelion/yummap-worker" HEAD:main
