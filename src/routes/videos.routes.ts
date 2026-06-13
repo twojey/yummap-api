@@ -1,7 +1,8 @@
 import { Router } from "../../deps.ts";
 import { z } from "../../deps.ts";
 import { guestOrAuth } from "../middleware/auth.middleware.ts";
-import { ValidationError } from "../shared/errors.ts";
+import { ValidationError, NotFoundError } from "../shared/errors.ts";
+import { supabaseService } from "../../config.ts";
 import { analyticsService } from "../infrastructure/analytics/analytics.service.ts";
 import { detectPlatform } from "../infrastructure/video/url-parsing.ts";
 import type { AppContainer } from "../boot/container.ts";
@@ -11,10 +12,24 @@ const ImportSchema = z.object({
   description: z.string().max(5000).default(""),
 });
 
+// Correction manuelle = saisie LIBRE du nom (+ adresse optionnelle). On ne
+// demande PAS de placeId au client : c'est le backend qui résout sur Google
+// Places, comme le pipeline auto. L'adresse aide à désambiguïser les enseignes
+// multi-succursales mais n'est pas obligatoire (Places matche souvent "nom + Paris").
 const CompleteSchema = z.object({
-  restaurantPlaceId: z.string().min(1),
   restaurantName: z.string().min(1),
+  restaurantAddress: z.string().optional().default(""),
 });
+
+// Assigne un resto unique à une vidéo en position 0 (réécrit les liens pour
+// garantir un état propre). Même logique que /creator/videos/:id/assign-restaurant.
+async function linkVideoToRestaurant(videoId: string, restaurantId: string) {
+  await supabaseService.from("video_restaurants").delete().eq("video_id", videoId);
+  const { error } = await supabaseService.from("video_restaurants").insert({
+    video_id: videoId, restaurant_id: restaurantId, position: 0,
+  });
+  if (error) throw new Error(error.message);
+}
 
 const BulkImportSchema = z.object({
   profileUrl: z.string().url(),
@@ -83,14 +98,70 @@ export function registerVideoRoutes(router: Router, container: AppContainer) {
   });
 
   // ── Correction manuelle (restaurant non détecté automatiquement) ───────────
+  // Saisie libre nom (+ adresse) → résolution Google Places → création/maj du
+  // resto + liaison de la vidéo déjà stockée (needs_review levé). Si Places ne
+  // trouve aucun lieu "food", on NE complète pas : l'import reste en review et
+  // on renvoie 422 `place_not_found` pour que l'app guide l'utilisateur.
   router.patch("/videos/import/:jobId/complete", guestOrAuth, async (ctx) => {
     const body = await ctx.request.body({ type: "json" }).value;
     const parsed = CompleteSchema.safeParse(body);
     if (!parsed.success) throw new ValidationError("Invalid completion data", parsed.error.issues);
 
+    const request = await container.videoImportRequestRepo.findById(ctx.params.jobId);
+    if (!request) throw new NotFoundError("Import job", ctx.params.jobId);
+
+    const place = await container.placesClient.findPlace(
+      parsed.data.restaurantName,
+      parsed.data.restaurantAddress,
+    );
+    if (!place) {
+      // Pas de match : on garde l'import corrigeable (review) au lieu de le
+      // figer en complete sans resto. missing=place_match reflète la cause réelle.
+      await container.videoImportRequestRepo.updateStatus(ctx.params.jobId, "incomplete", {
+        missingFields: ["place_match"],
+      });
+      ctx.response.status = 422;
+      ctx.response.body = {
+        error: "place_not_found",
+        message: "No food place matched the provided name/address",
+      };
+      return;
+    }
+
+    // Crée/maj le resto + pré-fetch horaires/reviews (identique à assign-restaurant).
+    const restaurant = await container.restaurantRepo.upsert({
+      id: crypto.randomUUID(),
+      placeId: place.placeId,
+      name: place.name,
+      address: place.address,
+      city: "Paris",
+      location: place.location,
+      googleRating: place.rating ?? null,
+      googleRatingsCount: place.ratingsCount ?? null,
+      openNow: place.openNow ?? null,
+      openingHours: null,
+      websiteUrl: place.websiteUrl ?? null,
+      phoneNumber: place.phoneNumber ?? null,
+    });
+    await container.enrichRestaurantGoogleData.run(restaurant.id, place.placeId);
+
+    // Lie la vidéo déjà uploadée par le pipeline (clé uploader_id + source_url)
+    // et lève needs_review. Défensif : si aucune vidéo (cas improbable), on
+    // complète quand même la requête pour ne pas bloquer l'utilisateur.
+    const { data: video } = await supabaseService
+      .from("videos")
+      .select("id")
+      .eq("uploader_id", request.uploaderId)
+      .eq("source_url", request.url)
+      .maybeSingle();
+    if (video) {
+      await linkVideoToRestaurant(video.id, restaurant.id);
+      await supabaseService.from("videos").update({ needs_review: false }).eq("id", video.id);
+    }
+
     await container.videoImportRequestRepo.updateStatus(ctx.params.jobId, "complete", {
-      restaurantPlaceId: parsed.data.restaurantPlaceId,
-      restaurantName: parsed.data.restaurantName,
+      restaurantPlaceId: place.placeId,
+      restaurantName: place.name,
     });
 
     ctx.response.status = 200;
